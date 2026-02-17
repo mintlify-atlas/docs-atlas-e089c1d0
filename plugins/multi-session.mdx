@@ -1,0 +1,331 @@
+---
+title: "Multi-Session"
+description: "Allow users to maintain multiple active sessions across different devices simultaneously"
+icon: "devices"
+---
+
+## Overview
+
+The Multi-Session plugin enables users to authenticate and maintain multiple active sessions simultaneously across different devices or browsers. This is particularly useful for users who switch between devices frequently or need to access their account from multiple locations.
+
+## Use Cases
+
+- **Multi-device workflows**: Users working on desktop, mobile, and tablet simultaneously
+- **Family sharing**: Multiple family members using different devices
+- **Development & testing**: Developers testing on multiple browsers
+- **Session management UI**: Display and manage all active sessions
+
+## Installation
+
+```bash
+npm install better-auth
+```
+
+## Configuration
+
+### Server Setup
+
+From `packages/better-auth/src/plugins/multi-session/index.ts:19`:
+
+```typescript
+import { betterAuth } from "better-auth"
+import { multiSession } from "better-auth/plugins"
+
+const auth = betterAuth({
+  plugins: [
+    multiSession({
+      // Maximum number of sessions a user can have at a time
+      maximumSessions: 5  // Default: 5
+    })
+  ]
+})
+```
+
+**Options:**
+
+- `maximumSessions` (optional): Maximum number of concurrent sessions per user. Default is 5.
+
+### Client Setup
+
+From `packages/better-auth/src/plugins/multi-session/client.ts:4`:
+
+```typescript
+import { createAuthClient } from "better-auth/client"
+import { multiSessionClient } from "better-auth/client/plugins"
+
+const authClient = createAuthClient({
+  plugins: [multiSessionClient()]
+})
+```
+
+## API Methods
+
+### List Device Sessions
+
+Retrieve all active sessions for the current user.
+
+**Endpoint:** `GET /multi-session/list-device-sessions`
+
+From `packages/better-auth/src/plugins/multi-session/index.ts:70`:
+
+```typescript
+// Client usage
+const sessions = await authClient.multiSession.listDeviceSessions()
+
+// Server usage
+const sessions = await auth.api.listDeviceSessions({
+  headers: request.headers
+})
+```
+
+**Response:**
+
+```typescript
+[
+  {
+    session: {
+      id: string
+      userId: string
+      token: string
+      expiresAt: Date
+      ipAddress: string | null
+      userAgent: string | null
+      createdAt: Date
+      updatedAt: Date
+    },
+    user: {
+      id: string
+      email: string
+      name: string
+      // ... other user fields
+    }
+  }
+]
+```
+
+### Set Active Session
+
+Switch to a different active session.
+
+**Endpoint:** `POST /multi-session/set-active`
+
+From `packages/better-auth/src/plugins/multi-session/index.ts:130`:
+
+```typescript
+// Client usage
+const result = await authClient.multiSession.setActive({
+  sessionToken: "session_token_here"
+})
+
+// Server usage
+const result = await auth.api.setActiveSession({
+  body: {
+    sessionToken: "session_token_here"
+  },
+  headers: request.headers
+})
+```
+
+**Request Body:**
+
+- `sessionToken` (string, required): The session token to set as active
+
+**Response:**
+
+```typescript
+{
+  session: Session
+  user: User
+}
+```
+
+### Revoke Device Session
+
+Revoke a specific session.
+
+**Endpoint:** `POST /multi-session/revoke`
+
+From `packages/better-auth/src/plugins/multi-session/index.ts:207`:
+
+```typescript
+// Client usage
+const result = await authClient.multiSession.revoke({
+  sessionToken: "session_token_to_revoke"
+})
+
+// Server usage
+const result = await auth.api.revokeDeviceSession({
+  body: {
+    sessionToken: "session_token_to_revoke"
+  },
+  headers: request.headers
+})
+```
+
+**Request Body:**
+
+- `sessionToken` (string, required): The session token to revoke
+
+**Response:**
+
+```typescript
+{
+  status: boolean
+}
+```
+
+## Usage Examples
+
+### Display Active Sessions
+
+```typescript
+import { authClient } from "./auth-client"
+
+async function displaySessions() {
+  const sessions = await authClient.multiSession.listDeviceSessions()
+  
+  return sessions.map(({ session, user }) => ({
+    device: session.userAgent,
+    ipAddress: session.ipAddress,
+    lastActive: session.updatedAt,
+    isCurrentSession: session.token === currentSessionToken
+  }))
+}
+```
+
+### Switch Between Sessions
+
+```typescript
+import { authClient } from "./auth-client"
+
+async function switchSession(sessionToken: string) {
+  try {
+    const { session, user } = await authClient.multiSession.setActive({
+      sessionToken
+    })
+    
+    console.log(`Switched to session for ${user.email}`)
+    // Session cookie is automatically updated
+  } catch (error) {
+    console.error("Failed to switch session:", error)
+  }
+}
+```
+
+### Revoke a Session
+
+```typescript
+import { authClient } from "./auth-client"
+
+async function revokeSession(sessionToken: string) {
+  try {
+    await authClient.multiSession.revoke({ sessionToken })
+    console.log("Session revoked successfully")
+  } catch (error) {
+    console.error("Failed to revoke session:", error)
+  }
+}
+```
+
+### Build a Session Manager UI
+
+```tsx
+import { useState, useEffect } from "react"
+import { authClient } from "./auth-client"
+
+function SessionManager() {
+  const [sessions, setSessions] = useState([])
+  
+  useEffect(() => {
+    loadSessions()
+  }, [])
+  
+  async function loadSessions() {
+    const data = await authClient.multiSession.listDeviceSessions()
+    setSessions(data)
+  }
+  
+  async function handleRevoke(sessionToken: string) {
+    await authClient.multiSession.revoke({ sessionToken })
+    await loadSessions()
+  }
+  
+  return (
+    <div>
+      <h2>Active Sessions</h2>
+      {sessions.map(({ session }) => (
+        <div key={session.id}>
+          <p>{session.userAgent}</p>
+          <p>Last active: {session.updatedAt.toLocaleString()}</p>
+          <button onClick={() => handleRevoke(session.token)}>
+            Revoke
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+```
+
+## How It Works
+
+### Cookie Management
+
+From `packages/better-auth/src/plugins/multi-session/index.ts:310`:
+
+The plugin stores multiple session tokens in separate cookies with the format:
+
+```
+{cookieName}_multi-{sessionToken}
+```
+
+When a user signs in on a new device:
+
+1. A new session is created
+2. A multi-session cookie is set alongside the main session cookie
+3. The plugin checks if the maximum session limit is exceeded
+4. Old sessions for the same user are cleaned up if the limit is reached
+
+### Session Switching
+
+From `packages/better-auth/src/plugins/multi-session/index.ts:160`:
+
+When switching sessions:
+
+1. The plugin validates the requested session token exists in cookies
+2. Fetches the full session from the database
+3. Sets it as the active session cookie
+4. Returns the session and user data
+
+### Automatic Cleanup
+
+From `packages/better-auth/src/plugins/multi-session/index.ts:357`:
+
+On sign-out, the plugin:
+
+1. Finds all multi-session cookies
+2. Verifies each session token
+3. Deletes all sessions from the database
+4. Expires all multi-session cookies
+
+## Security Considerations
+
+<Warning>
+**Session Limits**: The `maximumSessions` option prevents session accumulation. Set this based on your security requirements.
+</Warning>
+
+<Info>
+**Cookie Security**: All session tokens are stored in signed cookies and validated against the database on each request.
+</Info>
+
+## Error Codes
+
+From `packages/better-auth/src/plugins/multi-session/index.ts:28`:
+
+- `INVALID_SESSION_TOKEN`: The provided session token is invalid or doesn't exist
+
+## Related
+
+- [Sessions Concept](/concepts/sessions)
+- [Custom Session Plugin](/plugins/custom-session)
+- [Session Configuration](/api-reference/configuration#session)

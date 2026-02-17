@@ -1,0 +1,151 @@
+---
+title: "Database Adapters Overview"
+description: "Connect Better Auth to your database using official adapters"
+---
+
+## What are Database Adapters?
+
+Database adapters are the bridge between Better Auth and your database. They handle all database operations including creating, reading, updating, and deleting authentication data like users, sessions, accounts, and verification tokens.
+
+## Supported Adapters
+
+Better Auth provides official adapters for the most popular ORMs and database clients:
+
+<CardGroup cols={2}>
+  <Card title="Prisma" icon="database" href="/adapters/prisma">
+    Full-featured ORM with great TypeScript support
+  </Card>
+  <Card title="Drizzle" icon="database" href="/adapters/drizzle">
+    Lightweight TypeScript ORM with SQL-like syntax
+  </Card>
+  <Card title="MongoDB" icon="leaf" href="/adapters/mongodb">
+    NoSQL document database adapter
+  </Card>
+  <Card title="Kysely" icon="database" href="/adapters/kysely">
+    Type-safe SQL query builder
+  </Card>
+</CardGroup>
+
+## How Adapters Work
+
+Adapters implement a standard interface that Better Auth uses to interact with your database. Each adapter:
+
+- Translates Better Auth operations into database-specific queries
+- Handles schema mapping and field transformations
+- Manages transactions when supported
+- Provides debug logging for troubleshooting
+
+## Choosing an Adapter
+
+Select an adapter based on your existing database setup:
+
+| Adapter | Best For | Databases Supported |
+|---------|----------|--------------------|
+| **Prisma** | Teams wanting a full-featured ORM with migrations | PostgreSQL, MySQL, SQLite, SQL Server, CockroachDB, MongoDB |
+| **Drizzle** | Projects needing lightweight ORM with full TypeScript support | PostgreSQL, MySQL, SQLite |
+| **MongoDB** | NoSQL document-based data models | MongoDB |
+| **Kysely** | SQL-first approach with type safety | PostgreSQL, MySQL, SQLite, SQL Server |
+
+## Common Adapter Options
+
+All adapters support these common configuration options:
+
+### Debug Logs
+
+Enable detailed logging for troubleshooting:
+
+```typescript
+{
+  debugLogs: true, // or { isRunningAdapterTests: true }
+}
+```
+
+### Plural Table Names
+
+Use plural table names (e.g., `users` instead of `user`):
+
+```typescript
+{
+  usePlural: true
+}
+```
+
+### Transactions
+
+Enable database transactions for atomic operations:
+
+```typescript
+{
+  transaction: true
+}
+```
+
+<Note>
+  Not all databases support transactions. Check your adapter's documentation for details.
+</Note>
+
+## Schema Generation
+
+Better Auth provides CLI tools to generate database schemas for your adapter:
+
+```bash
+npx @better-auth/cli generate
+```
+
+This command generates the appropriate schema files for your chosen adapter, including:
+
+- User tables
+- Session tables
+- Account tables (for OAuth)
+- Verification token tables
+- Additional plugin-specific tables
+
+## Custom Adapters
+
+You can create custom adapters using the `createAdapterFactory` utility:
+
+```typescript
+import { createAdapterFactory } from "better-auth/adapters";
+
+const myAdapter = createAdapterFactory({
+  config: {
+    adapterId: "my-adapter",
+    adapterName: "My Custom Adapter",
+    // ... adapter configuration
+  },
+  adapter: ({
+    getFieldName,
+    getModelName,
+    schema,
+  }) => {
+    return {
+      async create({ model, data }) {
+        // Implement create logic
+      },
+      async findOne({ model, where }) {
+        // Implement findOne logic
+      },
+      // ... other methods
+    };
+  },
+});
+```
+
+## Next Steps
+
+Choose your adapter and follow the setup guide:
+
+<CardGroup cols={2}>
+  <Card title="Prisma Setup" href="/adapters/prisma">
+    Set up Prisma adapter
+  </Card>
+  <Card title="Drizzle Setup" href="/adapters/drizzle">
+    Set up Drizzle adapter
+  </Card>
+  <Card title="MongoDB Setup" href="/adapters/mongodb">
+    Set up MongoDB adapter
+  </Card>
+  <Card title="Kysely Setup" href="/adapters/kysely">
+    Set up Kysely adapter
+  </Card>
+</CardGroup>

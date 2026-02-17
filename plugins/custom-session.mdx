@@ -1,0 +1,399 @@
+---
+title: "Custom Session"
+description: "Extend session data with custom fields and business logic"
+icon: "user-gear"
+---
+
+## Overview
+
+The Custom Session plugin allows you to extend the default session response with custom data, such as user roles, permissions, preferences, or any other business-specific information. This enables you to fetch all necessary user context in a single request.
+
+## Use Cases
+
+- **Role-based access control**: Include user roles and permissions in session data
+- **User preferences**: Attach theme, language, or notification settings
+- **Subscription status**: Include billing or subscription information
+- **Team context**: Add current workspace or team information
+- **Custom user metadata**: Extend session with any additional user data
+
+## Installation
+
+```bash
+npm install better-auth
+```
+
+## Configuration
+
+### Server Setup
+
+From `packages/better-auth/src/plugins/custom-session/index.ts:46`:
+
+```typescript
+import { betterAuth } from "better-auth"
+import { customSession } from "better-auth/plugins"
+
+const auth = betterAuth({
+  plugins: [
+    customSession(
+      async (session, ctx) => {
+        // Add custom fields to the session
+        return {
+          ...session,
+          role: session.user.role,
+          permissions: await getPermissions(session.user.id),
+          subscription: await getSubscriptionStatus(session.user.id)
+        }
+      },
+      undefined, // BetterAuth options (optional)
+      {
+        // Mutate list-device-sessions endpoint from multi-session plugin
+        shouldMutateListDeviceSessionsEndpoint: false // Default: false
+      }
+    )
+  ]
+})
+```
+
+**Function Signature:**
+
+```typescript
+customSession<Returns extends Record<string, any>>(
+  fn: (session, ctx) => Promise<Returns>,
+  options?: BetterAuthOptions,
+  pluginOptions?: CustomSessionPluginOptions
+)
+```
+
+**Parameters:**
+
+- `fn`: Async function that receives the session and context, returns custom session data
+  - `session`: Object containing `user` and `session`
+  - `ctx`: Generic endpoint context for accessing request data
+- `options`: Optional BetterAuth configuration
+- `pluginOptions`: Plugin-specific options
+  - `shouldMutateListDeviceSessionsEndpoint`: Apply custom session to multi-session list endpoint (default: false)
+
+### Client Setup
+
+From `packages/better-auth/src/plugins/custom-session/client.ts:5`:
+
+```typescript
+import { createAuthClient } from "better-auth/client"
+import { customSessionClient } from "better-auth/client/plugins"
+import type { auth } from "./auth" // Your auth instance
+
+const authClient = createAuthClient({
+  plugins: [
+    customSessionClient<typeof auth>()
+  ]
+})
+
+export { authClient }
+```
+
+## API Methods
+
+### Get Custom Session
+
+Retrieve the current session with custom data.
+
+**Endpoint:** `GET /get-session`
+
+From `packages/better-auth/src/plugins/custom-session/index.ts:80`:
+
+```typescript
+// Client usage
+const session = await authClient.getSession()
+
+// Server usage
+const session = await auth.api.getSession({
+  headers: request.headers
+})
+```
+
+**Query Parameters:**
+
+- `disableCookieCache` (boolean, optional): Bypass cookie cache and fetch from database
+- `disableRefresh` (boolean, optional): Prevent session refresh on this request
+
+**Response:**
+
+```typescript
+// Returns your custom session type
+{
+  user: User
+  session: Session
+  // ... your custom fields
+  role?: string
+  permissions?: string[]
+  subscription?: {
+    status: string
+    expiresAt: Date
+  }
+} | null
+```
+
+## Usage Examples
+
+### Add User Roles and Permissions
+
+```typescript
+import { betterAuth } from "better-auth"
+import { customSession } from "better-auth/plugins"
+import { db } from "./db"
+
+const auth = betterAuth({
+  plugins: [
+    customSession(async ({ user, session }) => {
+      // Fetch additional user data
+      const userRole = await db.userRole.findUnique({
+        where: { userId: user.id }
+      })
+      
+      const permissions = await db.permission.findMany({
+        where: { roleId: userRole.roleId }
+      })
+      
+      return {
+        user,
+        session,
+        role: userRole.role,
+        permissions: permissions.map(p => p.name)
+      }
+    })
+  ]
+})
+
+export type Session = typeof auth.$Infer.Session
+```
+
+### Include Subscription Status
+
+```typescript
+import { customSession } from "better-auth/plugins"
+import { stripe } from "./stripe"
+
+const auth = betterAuth({
+  plugins: [
+    customSession(async ({ user, session }) => {
+      const subscription = await stripe.subscriptions.list({
+        customer: user.stripeCustomerId,
+        status: 'active',
+        limit: 1
+      })
+      
+      return {
+        user,
+        session,
+        subscription: subscription.data[0] ? {
+          status: subscription.data[0].status,
+          plan: subscription.data[0].items.data[0].price.id,
+          expiresAt: new Date(subscription.data[0].current_period_end * 1000)
+        } : null
+      }
+    })
+  ]
+})
+```
+
+### Add Team/Workspace Context
+
+```typescript
+import { customSession } from "better-auth/plugins"
+import { db } from "./db"
+
+const auth = betterAuth({
+  plugins: [
+    customSession(async ({ user, session }, ctx) => {
+      // Get workspace from request context or user default
+      const workspaceId = ctx.query?.workspaceId || user.defaultWorkspaceId
+      
+      const workspace = await db.workspace.findUnique({
+        where: { id: workspaceId },
+        include: {
+          members: true
+        }
+      })
+      
+      const member = workspace.members.find(m => m.userId === user.id)
+      
+      return {
+        user,
+        session,
+        workspace: {
+          id: workspace.id,
+          name: workspace.name,
+          role: member?.role
+        }
+      }
+    })
+  ]
+})
+```
+
+### Using Custom Session on Client
+
+```typescript
+import { authClient } from "./auth-client"
+
+async function checkUserPermissions() {
+  const session = await authClient.getSession()
+  
+  if (!session) {
+    return { authorized: false }
+  }
+  
+  const hasAdminAccess = session.permissions?.includes('admin')
+  const isSubscribed = session.subscription?.status === 'active'
+  
+  return {
+    authorized: hasAdminAccess && isSubscribed,
+    role: session.role,
+    expiresAt: session.subscription?.expiresAt
+  }
+}
+```
+
+### React Hook for Custom Session
+
+```tsx
+import { useState, useEffect } from "react"
+import { authClient } from "./auth-client"
+import type { Session } from "./auth"
+
+function useSession() {
+  const [session, setSession] = useState<Session | null>(null)
+  const [loading, setLoading] = useState(true)
+  
+  useEffect(() => {
+    authClient.getSession()
+      .then(setSession)
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+  
+  return { session, loading }
+}
+
+export function ProtectedComponent() {
+  const { session, loading } = useSession()
+  
+  if (loading) return <div>Loading...</div>
+  if (!session) return <div>Please sign in</div>
+  if (session.role !== 'admin') return <div>Access denied</div>
+  
+  return (
+    <div>
+      <h1>Admin Dashboard</h1>
+      <p>Permissions: {session.permissions?.join(', ')}</p>
+    </div>
+  )
+}
+```
+
+## Integration with Multi-Session
+
+From `packages/better-auth/src/plugins/custom-session/index.ts:65`:
+
+You can apply your custom session data to the Multi-Session plugin's list endpoint:
+
+```typescript
+import { betterAuth } from "better-auth"
+import { customSession, multiSession } from "better-auth/plugins"
+
+const auth = betterAuth({
+  plugins: [
+    multiSession(),
+    customSession(
+      async ({ user, session }) => ({
+        user,
+        session,
+        role: user.role,
+        lastDevice: session.userAgent
+      }),
+      undefined,
+      {
+        // Apply custom session to list-device-sessions
+        shouldMutateListDeviceSessionsEndpoint: true
+      }
+    )
+  ]
+})
+
+// Now listDeviceSessions will include custom fields
+const sessions = await auth.api.listDeviceSessions({ headers })
+// Each session will have role and lastDevice fields
+```
+
+## Type Safety
+
+### Infer Session Type
+
+From `packages/better-auth/src/plugins/custom-session/index.ts:136`:
+
+```typescript
+import { auth } from "./auth"
+
+// Automatically infer your custom session type
+export type Session = typeof auth.$Infer.Session
+
+// Use in your application
+function requireAdmin(session: Session) {
+  if (session.role !== 'admin') {
+    throw new Error('Admin access required')
+  }
+}
+```
+
+## Performance Considerations
+
+<Warning>
+**Database Queries**: The custom session function runs on every session fetch. Keep database queries efficient and consider caching.
+</Warning>
+
+<Info>
+**Cookie Cache**: Custom session data is included in cookie cache when enabled, reducing database load.
+</Info>
+
+### Optimization Tips
+
+```typescript
+import { customSession } from "better-auth/plugins"
+import { cache } from "./cache"
+
+const auth = betterAuth({
+  plugins: [
+    customSession(async ({ user, session }) => {
+      // Use caching for expensive operations
+      const cacheKey = `permissions:${user.id}`
+      let permissions = await cache.get(cacheKey)
+      
+      if (!permissions) {
+        permissions = await db.permissions.findMany({
+          where: { userId: user.id }
+        })
+        await cache.set(cacheKey, permissions, 300) // 5 min TTL
+      }
+      
+      return {
+        user,
+        session,
+        permissions
+      }
+    })
+  ],
+  session: {
+    // Enable cookie cache to reduce custom session calls
+    cookieCache: {
+      enabled: true,
+      maxAge: 5 * 60 // 5 minutes
+    }
+  }
+})
+```
+
+## Related
+
+- [Sessions Concept](/concepts/sessions)
+- [Multi-Session Plugin](/plugins/multi-session)
+- [Session Configuration](/api-reference/configuration#session)

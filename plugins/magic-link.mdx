@@ -1,0 +1,638 @@
+---
+title: Magic Link
+description: Passwordless authentication with email magic links
+---
+
+## Overview
+
+Magic Link provides a passwordless authentication experience where users receive a unique, time-limited link via email. This method combines security with excellent user experience by eliminating password management.
+
+## Features
+
+- **Passwordless Authentication** - No password required for sign-in
+- **Email Verification Built-in** - Email is verified automatically on first sign-in
+- **Automatic User Creation** - Creates new users on first magic link sign-in
+- **Token Security** - Support for plain, hashed, or custom token storage
+- **Configurable Expiration** - Set custom expiration times for links
+- **Rate Limiting** - Built-in protection against abuse
+- **Custom Callbacks** - Different redirect URLs for new users, errors, and success
+- **Custom Token Generation** - Use your own token generation logic
+
+## Use Cases
+
+- Passwordless authentication for better UX
+- Quick user onboarding without password setup
+- Temporary access links for limited-time features
+- Email-based authentication for mobile apps
+- Simplifying authentication for non-technical users
+
+## Installation
+
+The Magic Link plugin is included in Better Auth:
+
+```bash
+npm install better-auth
+```
+
+## Configuration
+
+### Plugin Options
+
+<ParamField path="sendMagicLink" type="function" required>
+  Function to send the magic link via email.
+  
+  **Parameters:**
+  - `email` (string) - Recipient email address
+  - `url` (string) - Complete magic link URL to send
+  - `token` (string) - The verification token
+  - `ctx` (GenericEndpointContext, optional) - Request context
+  
+  **Returns:** `Promise<void>`
+</ParamField>
+
+<ParamField path="expiresIn" type="number" default={300}>
+  Time in seconds until the magic link expires (default: 5 minutes).
+</ParamField>
+
+<ParamField path="disableSignUp" type="boolean" default={false}>
+  Prevent automatic user creation if the user doesn't exist.
+</ParamField>
+
+<ParamField path="rateLimit" type="object" optional>
+  Rate limiting configuration.
+  
+  <Expandable title="Rate Limit Options">
+    <ParamField path="window" type="number" default={60}>
+      Time window in seconds.
+    </ParamField>
+    
+    <ParamField path="max" type="number" default={5}>
+      Maximum requests allowed per window.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="generateToken" type="function" optional>
+  Custom function to generate verification tokens.
+  
+  **Parameters:**
+  - `email` (string) - User's email address
+  
+  **Returns:** `Promise<string>` - Generated token
+</ParamField>
+
+<ParamField path="storeToken" type="'plain' | 'hashed' | object" default="plain">
+  How to store the token in the database.
+  
+  - `"plain"` - Store token as-is
+  - `"hashed"` - Hash token before storing
+  - `{ type: "custom-hasher", hash: (token) => Promise<string> }` - Custom hasher
+</ParamField>
+
+## Setup
+
+<Steps>
+
+<Step title="Configure the plugin">
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth"
+import { magicLink } from "better-auth/plugins"
+import { sendEmail } from "./lib/email"
+
+export const auth = betterAuth({
+  database: {
+    // your database configuration
+  },
+  plugins: [
+    magicLink({
+      sendMagicLink: async ({ email, url, token }, request) => {
+        await sendEmail({
+          to: email,
+          subject: "Sign in to your account",
+          html: `
+            <h1>Sign in to MyApp</h1>
+            <p>Click the link below to sign in:</p>
+            <a href="${url}">Sign in to your account</a>
+            <p>This link expires in 5 minutes.</p>
+            <p>If you didn't request this, please ignore this email.</p>
+          `,
+        })
+      },
+      expiresIn: 60 * 5, // 5 minutes
+      disableSignUp: false,
+    }),
+  ],
+})
+```
+
+</Step>
+
+<Step title="Set up email service">
+
+Example with Resend:
+
+```ts title="lib/email.ts"
+import { Resend } from 'resend'
+
+const resend = new Resend(process.env.RESEND_API_KEY)
+
+export async function sendEmail({
+  to,
+  subject,
+  html,
+}: {
+  to: string
+  subject: string
+  html: string
+}) {
+  await resend.emails.send({
+    from: 'noreply@myapp.com',
+    to,
+    subject,
+    html,
+  })
+}
+```
+
+Or with Nodemailer:
+
+```ts title="lib/email.ts"
+import nodemailer from 'nodemailer'
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT),
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASSWORD,
+  },
+})
+
+export async function sendEmail({
+  to,
+  subject,
+  html,
+}: {
+  to: string
+  subject: string
+  html: string
+}) {
+  await transporter.sendMail({
+    from: process.env.EMAIL_FROM,
+    to,
+    subject,
+    html,
+  })
+}
+```
+
+</Step>
+
+<Step title="Add environment variables">
+
+```bash title=".env"
+# For Resend
+RESEND_API_KEY=re_xxx
+
+# Or for SMTP
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=your-email@example.com
+SMTP_PASSWORD=your-password
+EMAIL_FROM=noreply@myapp.com
+```
+
+</Step>
+
+<Step title="Set up client plugin">
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/react"
+import { magicLinkClient } from "better-auth/client/plugins"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [magicLinkClient()],
+})
+```
+
+</Step>
+
+</Steps>
+
+## Client Usage
+
+### Request Magic Link
+
+<Tabs items={["React", "Vue", "Svelte", "Vanilla"]}>
+
+<Tab value="React">
+
+```tsx title="components/MagicLinkForm.tsx"
+import { authClient } from "@/lib/auth-client"
+import { useState } from "react"
+
+export function MagicLinkForm() {
+  const [email, setEmail] = useState("")
+  const [sent, setSent] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    
+    try {
+      await authClient.signIn.magicLink({
+        email,
+        callbackURL: "/dashboard",
+      })
+      setSent(true)
+    } catch (error) {
+      console.error("Failed to send magic link:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (sent) {
+    return (
+      <div>
+        <h2>Check your email</h2>
+        <p>We've sent a magic link to <strong>{email}</strong></p>
+        <p>Click the link in the email to sign in.</p>
+      </div>
+    )
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        placeholder="Enter your email"
+        required
+        disabled={loading}
+      />
+      <button type="submit" disabled={loading}>
+        {loading ? "Sending..." : "Send Magic Link"}
+      </button>
+    </form>
+  )
+}
+```
+
+</Tab>
+
+<Tab value="Vue">
+
+```vue title="components/MagicLinkForm.vue"
+<script setup lang="ts">
+import { ref } from 'vue'
+import { authClient } from '@/lib/auth-client'
+
+const email = ref('')
+const sent = ref(false)
+const loading = ref(false)
+
+const handleSubmit = async () => {
+  loading.value = true
+  try {
+    await authClient.signIn.magicLink({
+      email: email.value,
+      callbackURL: '/dashboard',
+    })
+    sent.value = true
+  } catch (error) {
+    console.error('Failed to send magic link:', error)
+  } finally {
+    loading.value = false
+  }
+}
+</script>
+
+<template>
+  <div>
+    <div v-if="sent">
+      <h2>Check your email</h2>
+      <p>We've sent a magic link to <strong>{{ email }}</strong></p>
+    </div>
+    
+    <form v-else @submit.prevent="handleSubmit">
+      <input
+        v-model="email"
+        type="email"
+        placeholder="Enter your email"
+        required
+        :disabled="loading"
+      />
+      <button type="submit" :disabled="loading">
+        {{ loading ? 'Sending...' : 'Send Magic Link' }}
+      </button>
+    </form>
+  </div>
+</template>
+```
+
+</Tab>
+
+<Tab value="Svelte">
+
+```svelte title="components/MagicLinkForm.svelte"
+<script lang="ts">
+  import { authClient } from '$lib/auth-client'
+
+  let email = ''
+  let sent = false
+  let loading = false
+
+  async function handleSubmit() {
+    loading = true
+    try {
+      await authClient.signIn.magicLink({
+        email,
+        callbackURL: '/dashboard',
+      })
+      sent = true
+    } catch (error) {
+      console.error('Failed to send magic link:', error)
+    } finally {
+      loading = false
+    }
+  }
+</script>
+
+{#if sent}
+  <div>
+    <h2>Check your email</h2>
+    <p>We've sent a magic link to <strong>{email}</strong></p>
+  </div>
+{:else}
+  <form on:submit|preventDefault={handleSubmit}>
+    <input
+      bind:value={email}
+      type="email"
+      placeholder="Enter your email"
+      required
+      disabled={loading}
+    />
+    <button type="submit" disabled={loading}>
+      {loading ? 'Sending...' : 'Send Magic Link'}
+    </button>
+  </form>
+{/if}
+```
+
+</Tab>
+
+<Tab value="Vanilla">
+
+```ts title="magic-link.ts"
+import { authClient } from './lib/auth-client'
+
+const form = document.querySelector('#magic-link-form') as HTMLFormElement
+const message = document.querySelector('#message')
+
+form?.addEventListener('submit', async (e) => {
+  e.preventDefault()
+  
+  const formData = new FormData(form)
+  const email = formData.get('email') as string
+  
+  try {
+    await authClient.signIn.magicLink({
+      email,
+      callbackURL: '/dashboard',
+    })
+    
+    if (message) {
+      message.innerHTML = `
+        <h2>Check your email</h2>
+        <p>We've sent a magic link to <strong>${email}</strong></p>
+      `
+    }
+  } catch (error) {
+    console.error('Failed to send magic link:', error)
+  }
+})
+```
+
+</Tab>
+
+</Tabs>
+
+### Advanced Options
+
+```tsx
+// Custom callback URLs
+await authClient.signIn.magicLink({
+  email: "user@example.com",
+  callbackURL: "/dashboard",
+  newUserCallbackURL: "/onboarding", // Redirect new users to onboarding
+  errorCallbackURL: "/auth/error",   // Redirect on error
+})
+
+// Provide name for new users
+await authClient.signIn.magicLink({
+  email: "user@example.com",
+  name: "John Doe", // Only used if user doesn't exist
+  callbackURL: "/dashboard",
+})
+```
+
+## Server Usage
+
+### Send Magic Link
+
+```ts title="app/api/auth/magic-link/route.ts"
+import { auth } from "@/lib/auth"
+import { headers } from "next/headers"
+
+export async function POST(request: Request) {
+  const { email } = await request.json()
+  
+  const result = await auth.api.signInMagicLink({
+    body: {
+      email,
+      callbackURL: "/dashboard",
+    },
+    headers: await headers(),
+  })
+  
+  return Response.json(result)
+}
+```
+
+### Verify Magic Link
+
+The verification endpoint is handled automatically by Better Auth at `/magic-link/verify`. You don't need to create a custom route.
+
+## API Reference
+
+### Client Methods
+
+<ResponseField name="signIn.magicLink" type="function">
+  Request a magic link to be sent to the specified email.
+  
+  **Parameters:**
+  - `email` (string, required) - Email address
+  - `name` (string, optional) - Display name for new users
+  - `callbackURL` (string, optional) - Redirect URL after successful sign-in
+  - `newUserCallbackURL` (string, optional) - Redirect URL for new users
+  - `errorCallbackURL` (string, optional) - Redirect URL on error
+  
+  **Returns:**
+  - `status` (boolean) - Whether the email was sent successfully
+</ResponseField>
+
+### Server Endpoints
+
+- `POST /sign-in/magic-link` - Send magic link (see index.ts:165-238)
+- `GET /magic-link/verify` - Verify magic link and create session (see index.ts:254-404)
+
+## Token Security
+
+### Plain Storage
+
+Tokens are stored as-is in the database:
+
+```ts
+magicLink({
+  sendMagicLink: async ({ email, url }) => {
+    // send email
+  },
+  storeToken: "plain", // Default
+})
+```
+
+### Hashed Storage
+
+Tokens are hashed before storage (see index.ts:134-136):
+
+```ts
+magicLink({
+  sendMagicLink: async ({ email, url }) => {
+    // send email
+  },
+  storeToken: "hashed",
+})
+```
+
+### Custom Hasher
+
+Use your own hashing function (see index.ts:137-144):
+
+```ts
+import bcrypt from "bcryptjs"
+
+magicLink({
+  sendMagicLink: async ({ email, url }) => {
+    // send email
+  },
+  storeToken: {
+    type: "custom-hasher",
+    hash: async (token) => {
+      return await bcrypt.hash(token, 10)
+    },
+  },
+})
+```
+
+## Magic Link Flow
+
+The complete authentication flow:
+
+1. **User enters email** - Submit email address to request magic link
+2. **Generate token** - Create random 32-character token (see index.ts:198-200)
+3. **Store token** - Save token/hash in verification table (see index.ts:202-206)
+4. **Build URL** - Construct verification URL with token (see index.ts:207-225)
+5. **Send email** - Deliver magic link to user's email (see index.ts:226-233)
+6. **User clicks link** - Open verification URL in browser
+7. **Verify token** - Check token validity and expiration (see index.ts:333-346)
+8. **Find or create user** - Look up user by email or create new account (see index.ts:354-374)
+9. **Verify email** - Mark email as verified (see index.ts:376-380)
+10. **Create session** - Generate session token (see index.ts:382-388)
+11. **Set cookie** - Store session in cookie (see index.ts:390-393)
+12. **Redirect** - Send user to callback URL (see index.ts:394-403)
+
+## Rate Limiting
+
+Built-in rate limiting prevents abuse (see index.ts:407-417):
+
+```ts
+rateLimit: [
+  {
+    pathMatcher(path) {
+      return (
+        path.startsWith("/sign-in/magic-link") ||
+        path.startsWith("/magic-link/verify")
+      )
+    },
+    window: 60, // 60 seconds
+    max: 5,     // 5 requests per window
+  },
+]
+```
+
+Customize rate limits:
+
+```ts
+magicLink({
+  sendMagicLink: async ({ email, url }) => {
+    // send email
+  },
+  rateLimit: {
+    window: 120, // 2 minutes
+    max: 3,      // 3 requests per window
+  },
+})
+```
+
+## Error Handling
+
+Magic link verification handles several error cases:
+
+- **Invalid token** - Token not found in database
+- **Expired token** - Token past expiration time (see index.ts:341-346)
+- **Sign-up disabled** - User doesn't exist and `disableSignUp: true` (see index.ts:371-373)
+- **Session creation failed** - Unable to create session (see index.ts:386-388)
+
+Redirect to error callback URL with error parameter:
+
+```
+/error?error=INVALID_TOKEN
+/error?error=EXPIRED_TOKEN
+/error?error=new_user_signup_disabled
+```
+
+## Custom Token Generation
+
+Override default token generation:
+
+```ts
+magicLink({
+  sendMagicLink: async ({ email, url, token }) => {
+    // send email
+  },
+  generateToken: async (email) => {
+    // Custom token generation logic
+    return `custom-${email}-${Date.now()}`
+  },
+})
+```
+
+## Disable Sign-Up
+
+Prevent new user registration via magic link:
+
+```ts
+magicLink({
+  sendMagicLink: async ({ email, url }) => {
+    // send email
+  },
+  disableSignUp: true, // Only allow existing users
+})
+```
+
+When enabled, magic links only work for registered users.

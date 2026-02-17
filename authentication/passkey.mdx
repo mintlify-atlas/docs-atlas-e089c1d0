@@ -1,0 +1,689 @@
+---
+title: Passkey
+description: Passwordless authentication with biometrics and security keys
+---
+
+## Overview
+
+Passkey authentication provides a modern, passwordless experience using WebAuthn. Users can authenticate with biometrics (Face ID, Touch ID, Windows Hello) or security keys (YubiKey). Passkeys are more secure than passwords and provide seamless authentication.
+
+## Features
+
+- Biometric authentication (Face ID, Touch ID, Windows Hello)
+- Security key support (YubiKey, etc.)
+- Multi-device passkeys
+- Platform and cross-platform authenticators
+- Passkey management (list, delete, update)
+- Auto-registration
+- No passwords to remember
+
+## Installation
+
+Install the Passkey plugin package:
+
+```bash
+npm install @better-auth/passkey
+```
+
+## Configuration
+
+### Server Setup
+
+<Steps>
+
+<Step title="Install and configure the plugin">
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth"
+import { passkey } from "@better-auth/passkey"
+
+export const auth = betterAuth({
+  database: {
+    // your database configuration
+  },
+  plugins: [
+    passkey({
+      rpName: "My App", // Relying Party name (your app name)
+      rpID: "localhost", // Your domain (use domain without protocol)
+      origin: "http://localhost:3000", // Your app URL
+    }),
+  ],
+})
+```
+
+</Step>
+
+<Step title="Run database migrations">
+
+Generate and run migrations to add the passkey table:
+
+```bash
+npx better-auth migrate
+```
+
+</Step>
+
+<Step title="Configure for production">
+
+For production, use your actual domain:
+
+```ts title="auth.ts"
+import { passkey } from "@better-auth/passkey"
+
+export const auth = betterAuth({
+  plugins: [
+    passkey({
+      rpName: "My App",
+      rpID: "myapp.com", // Your domain
+      origin: "https://myapp.com", // Your production URL
+    }),
+  ],
+})
+```
+
+</Step>
+
+</Steps>
+
+### Client Setup
+
+<Tabs items={["React", "Vue", "Svelte", "Vanilla"]}>
+
+<Tab value="React">
+
+```tsx title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/react"
+import { passkeyClient } from "@better-auth/passkey/client"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [passkeyClient()],
+})
+
+export const { signIn, passkey: passkeyActions, useSession } = authClient
+```
+
+</Tab>
+
+<Tab value="Vue">
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/vue"
+import { passkeyClient } from "@better-auth/passkey/client"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [passkeyClient()],
+})
+```
+
+</Tab>
+
+<Tab value="Svelte">
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/svelte"
+import { passkeyClient } from "@better-auth/passkey/client"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [passkeyClient()],
+})
+```
+
+</Tab>
+
+<Tab value="Vanilla">
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/client"
+import { passkeyClient } from "@better-auth/passkey/client"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [passkeyClient()],
+})
+```
+
+</Tab>
+
+</Tabs>
+
+## Usage
+
+### Register a Passkey
+
+Users must be signed in to register a passkey:
+
+<Tabs items={["React", "Vue", "Svelte", "Vanilla"]}>
+
+<Tab value="React">
+
+```tsx title="components/RegisterPasskey.tsx"
+import { passkey } from "@/lib/auth-client"
+
+export function RegisterPasskey() {
+  const handleRegister = async () => {
+    try {
+      await passkey.addPasskey({
+        name: "My Device",
+        authenticatorAttachment: "platform", // or "cross-platform"
+      })
+      
+      alert("Passkey registered successfully!")
+    } catch (error) {
+      console.error("Failed to register passkey:", error)
+    }
+  }
+
+  return (
+    <button onClick={handleRegister}>
+      Register Passkey
+    </button>
+  )
+}
+```
+
+</Tab>
+
+<Tab value="Vue">
+
+```vue title="components/RegisterPasskey.vue"
+<script setup lang="ts">
+import { authClient } from '@/lib/auth-client'
+
+const handleRegister = async () => {
+  try {
+    await authClient.passkey.addPasskey({
+      name: 'My Device',
+      authenticatorAttachment: 'platform',
+    })
+    
+    alert('Passkey registered successfully!')
+  } catch (error) {
+    console.error('Failed to register passkey:', error)
+  }
+}
+</script>
+
+<template>
+  <button @click="handleRegister">Register Passkey</button>
+</template>
+```
+
+</Tab>
+
+<Tab value="Svelte">
+
+```svelte title="components/RegisterPasskey.svelte"
+<script lang="ts">
+  import { authClient } from '$lib/auth-client'
+
+  async function handleRegister() {
+    try {
+      await authClient.passkey.addPasskey({
+        name: 'My Device',
+        authenticatorAttachment: 'platform',
+      })
+      
+      alert('Passkey registered successfully!')
+    } catch (error) {
+      console.error('Failed to register passkey:', error)
+    }
+  }
+</script>
+
+<button on:click={handleRegister}>Register Passkey</button>
+```
+
+</Tab>
+
+<Tab value="Vanilla">
+
+```ts title="register-passkey.ts"
+import { authClient } from './lib/auth-client'
+
+const button = document.querySelector('#register-passkey')
+
+button?.addEventListener('click', async () => {
+  try {
+    await authClient.passkey.addPasskey({
+      name: 'My Device',
+      authenticatorAttachment: 'platform',
+    })
+    
+    alert('Passkey registered successfully!')
+  } catch (error) {
+    console.error('Failed to register passkey:', error)
+  }
+})
+```
+
+</Tab>
+
+</Tabs>
+
+### Sign In with Passkey
+
+<Tabs items={["React", "Vue", "Svelte", "Vanilla"]}>
+
+<Tab value="React">
+
+```tsx title="components/PasskeySignIn.tsx"
+import { signIn } from "@/lib/auth-client"
+
+export function PasskeySignIn() {
+  const handleSignIn = async () => {
+    try {
+      await signIn.passkey()
+      
+      // User is now signed in
+      window.location.href = "/dashboard"
+    } catch (error) {
+      console.error("Failed to sign in with passkey:", error)
+    }
+  }
+
+  return (
+    <button onClick={handleSignIn}>
+      Sign in with Passkey
+    </button>
+  )
+}
+```
+
+</Tab>
+
+<Tab value="Vue">
+
+```vue title="components/PasskeySignIn.vue"
+<script setup lang="ts">
+import { authClient } from '@/lib/auth-client'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+
+const handleSignIn = async () => {
+  try {
+    await authClient.signIn.passkey()
+    
+    router.push('/dashboard')
+  } catch (error) {
+    console.error('Failed to sign in with passkey:', error)
+  }
+}
+</script>
+
+<template>
+  <button @click="handleSignIn">Sign in with Passkey</button>
+</template>
+```
+
+</Tab>
+
+<Tab value="Svelte">
+
+```svelte title="components/PasskeySignIn.svelte"
+<script lang="ts">
+  import { authClient } from '$lib/auth-client'
+  import { goto } from '$app/navigation'
+
+  async function handleSignIn() {
+    try {
+      await authClient.signIn.passkey()
+      
+      goto('/dashboard')
+    } catch (error) {
+      console.error('Failed to sign in with passkey:', error)
+    }
+  }
+</script>
+
+<button on:click={handleSignIn}>Sign in with Passkey</button>
+```
+
+</Tab>
+
+<Tab value="Vanilla">
+
+```ts title="passkey-signin.ts"
+import { authClient } from './lib/auth-client'
+
+const button = document.querySelector('#signin-passkey')
+
+button?.addEventListener('click', async () => {
+  try {
+    await authClient.signIn.passkey()
+    
+    window.location.href = '/dashboard'
+  } catch (error) {
+    console.error('Failed to sign in with passkey:', error)
+  }
+})
+```
+
+</Tab>
+
+</Tabs>
+
+### Auto-Fill with Passkey
+
+Enable autofill for seamless authentication:
+
+```tsx title="components/PasskeyAutoFill.tsx"
+import { signIn } from "@/lib/auth-client"
+import { useEffect } from "react"
+
+export function PasskeyAutoFill() {
+  useEffect(() => {
+    // Start autofill on component mount
+    signIn.passkey({ autoFill: true })
+  }, [])
+
+  return (
+    <input
+      type="text"
+      autoComplete="webauthn"
+      placeholder="Email"
+    />
+  )
+}
+```
+
+### List User Passkeys
+
+<Tabs items={["React", "Vue", "Svelte"]}>
+
+<Tab value="React">
+
+```tsx title="components/PasskeyList.tsx"
+import { authClient } from "@/lib/auth-client"
+
+const { listPasskeys } = authClient
+
+export function PasskeyList() {
+  const passkeys = listPasskeys()
+
+  return (
+    <div>
+      <h2>Your Passkeys</h2>
+      {passkeys.data?.map((passkey) => (
+        <div key={passkey.id}>
+          <p>{passkey.name || "Unnamed passkey"}</p>
+          <p>Created: {new Date(passkey.createdAt).toLocaleDateString()}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+```
+
+</Tab>
+
+<Tab value="Vue">
+
+```vue title="components/PasskeyList.vue"
+<script setup lang="ts">
+import { authClient } from '@/lib/auth-client'
+
+const { listPasskeys } = authClient.getAtoms()
+const passkeys = listPasskeys()
+</script>
+
+<template>
+  <div>
+    <h2>Your Passkeys</h2>
+    <div v-for="passkey in passkeys.data" :key="passkey.id">
+      <p>{{ passkey.name || 'Unnamed passkey' }}</p>
+      <p>Created: {{ new Date(passkey.createdAt).toLocaleDateString() }}</p>
+    </div>
+  </div>
+</template>
+```
+
+</Tab>
+
+<Tab value="Svelte">
+
+```svelte title="components/PasskeyList.svelte"
+<script lang="ts">
+  import { authClient } from '$lib/auth-client'
+  
+  const { listPasskeys } = authClient.getAtoms()
+  const passkeys = listPasskeys()
+</script>
+
+<div>
+  <h2>Your Passkeys</h2>
+  {#each $passkeys.data || [] as passkey (passkey.id)}
+    <div>
+      <p>{passkey.name || 'Unnamed passkey'}</p>
+      <p>Created: {new Date(passkey.createdAt).toLocaleDateString()}</p>
+    </div>
+  {/each}
+</div>
+```
+
+</Tab>
+
+</Tabs>
+
+### Delete Passkey
+
+```tsx title="components/DeletePasskey.tsx"
+import { authClient } from "@/lib/auth-client"
+
+const handleDelete = async (passkeyId: string) => {
+  await authClient.api.deletePasskey({
+    id: passkeyId,
+  })
+}
+```
+
+### Update Passkey Name
+
+```tsx title="components/UpdatePasskey.tsx"
+import { authClient } from "@/lib/auth-client"
+
+const handleUpdate = async (passkeyId: string, newName: string) => {
+  await authClient.api.updatePasskey({
+    id: passkeyId,
+    name: newName,
+  })
+}
+```
+
+## Configuration Options
+
+```ts
+interface PasskeyOptions {
+  /**
+   * Relying Party name (your application name)
+   */
+  rpName?: string
+
+  /**
+   * Relying Party ID (your domain)
+   * @default parsed from baseURL
+   */
+  rpID?: string
+
+  /**
+   * Origin URL of your application
+   */
+  origin?: string
+
+  /**
+   * Authenticator selection criteria
+   */
+  authenticatorSelection?: {
+    authenticatorAttachment?: "platform" | "cross-platform"
+    requireResidentKey?: boolean
+    residentKey?: "discouraged" | "preferred" | "required"
+    userVerification?: "required" | "preferred" | "discouraged"
+  }
+
+  /**
+   * Advanced WebAuthn configuration
+   */
+  advanced?: {
+    webAuthnChallengeCookie?: string
+  }
+
+  /**
+   * Custom schema extensions
+   */
+  schema?: Schema
+}
+```
+
+## API Reference
+
+### Server Endpoints
+
+- `GET /passkey/generate-register-options` - Generate registration options (see routes.ts:40-239)
+- `POST /passkey/verify-registration` - Verify and save passkey (see routes.ts:412-529)
+- `GET /passkey/generate-authenticate-options` - Generate authentication options (see routes.ts:241-400)
+- `POST /passkey/verify-authentication` - Verify and sign in (see routes.ts:535-691)
+- `GET /passkey/list-user-passkeys` - List user's passkeys (see routes.ts:708-752)
+- `POST /passkey/delete-passkey` - Delete a passkey (see routes.ts:775-833)
+- `POST /passkey/update-passkey` - Update passkey name (see routes.ts:859-940)
+
+### Client Methods
+
+```ts
+// Sign in with passkey
+await authClient.signIn.passkey({
+  autoFill?: boolean
+  fetchOptions?: ClientFetchOption
+})
+
+// Register a passkey
+await authClient.passkey.addPasskey({
+  name?: string
+  authenticatorAttachment?: "platform" | "cross-platform"
+  useAutoRegister?: boolean
+  fetchOptions?: ClientFetchOption
+})
+
+// List passkeys
+const passkeys = authClient.listPasskeys()
+
+// Delete passkey
+await authClient.api.deletePasskey({
+  id: string
+})
+
+// Update passkey
+await authClient.api.updatePasskey({
+  id: string
+  name: string
+})
+```
+
+## WebAuthn Flow
+
+### Registration Flow
+
+1. User clicks "Register Passkey"
+2. Generate registration options (see routes.ts:174-211)
+3. Create challenge and store in cookie (see routes.ts:213-234)
+4. Browser prompts for biometric/security key (see client.ts:132-136)
+5. Verify registration response (see routes.ts:483-489)
+6. Store passkey in database (see routes.ts:511-518)
+
+### Authentication Flow
+
+1. User clicks "Sign in with Passkey"
+2. Generate authentication options (see routes.ts:358-371)
+3. Create challenge and store in cookie (see routes.ts:378-395)
+4. Browser prompts for biometric/security key (see client.ts:52-54)
+5. Verify authentication response (see routes.ts:621-635)
+6. Create session (see routes.ts:654-661)
+7. Set session cookie (see routes.ts:670-673)
+
+## Platform Support
+
+### Biometric Authentication
+
+- iOS/iPadOS: Face ID, Touch ID
+- macOS: Touch ID
+- Windows: Windows Hello
+- Android: Fingerprint, Face Unlock
+
+### Security Keys
+
+- YubiKey
+- Google Titan Security Key
+- Any FIDO2-compatible security key
+
+### Browser Support
+
+- Chrome 67+
+- Edge 18+
+- Firefox 60+
+- Safari 13+
+
+## Security Features
+
+### Challenge-Response
+
+Every authentication uses a unique challenge to prevent replay attacks (see routes.ts:228-233, routes.ts:393-394).
+
+### Origin Validation
+
+The origin is validated to prevent phishing attacks (see routes.ts:486-487, routes.ts:624).
+
+### User Verification
+
+Requires biometric or PIN verification (configured in authenticatorSelection).
+
+### Counter Tracking
+
+Prevents cloned authenticators by tracking signature counter (see routes.ts:642-653).
+
+## Best Practices
+
+1. **HTTPS Only**: Passkeys require HTTPS in production
+2. **Multiple Passkeys**: Allow users to register multiple passkeys
+3. **Fallback Auth**: Provide alternative authentication methods
+4. **Clear UX**: Explain what passkeys are and their benefits
+5. **Auto-Register**: Consider auto-registration after password sign-in
+6. **Device Names**: Let users name their passkeys for easy identification
+
+## Troubleshooting
+
+### Passkey not supported
+
+- Check browser compatibility
+- Ensure HTTPS is enabled (required in production)
+- Verify WebAuthn is available: `window.PublicKeyCredential`
+
+### Registration fails
+
+- Check rpID matches your domain
+- Verify origin matches your app URL
+- Ensure user is signed in (required for registration)
+
+### Authentication fails
+
+- Passkey might be deleted
+- Check if counter is increasing (prevents cloned keys)
+- Verify origin and rpID configuration
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Sessions" href="/concepts/sessions">
+    Learn about session management
+  </Card>
+  <Card title="Multi-Factor Auth" href="/authentication/two-factor">
+    Add two-factor authentication
+  </Card>
+  <Card title="Database" href="/concepts/database">
+    Understand database schema
+  </Card>
+  <Card title="Testing" href="/guides/testing">
+    Test passkey authentication
+  </Card>
+</CardGroup>

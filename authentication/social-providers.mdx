@@ -1,0 +1,570 @@
+---
+title: Social Providers
+description: OAuth authentication with popular social providers
+---
+
+## Overview
+
+Better Auth supports OAuth2 authentication with multiple social providers including Google, GitHub, Discord, Facebook, Apple, and more. Social authentication provides a seamless sign-in experience for your users.
+
+## Features
+
+- 40+ built-in OAuth providers
+- Automatic account linking
+- ID token verification (Google, Apple)
+- Custom OAuth providers
+- PKCE flow support
+- Token management
+- Provider-specific scopes
+
+## Installation
+
+Social providers are built into Better Auth core - no additional packages required.
+
+## Configuration
+
+### Server Setup
+
+<Steps>
+
+<Step title="Configure social providers">
+
+Add social providers to your auth configuration:
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth"
+
+export const auth = betterAuth({
+  database: {
+    // your database configuration
+  },
+  socialProviders: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+    },
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID!,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+    },
+    discord: {
+      clientId: process.env.DISCORD_CLIENT_ID!,
+      clientSecret: process.env.DISCORD_CLIENT_SECRET!,
+    },
+  },
+})
+```
+
+</Step>
+
+<Step title="Set up environment variables">
+
+```bash title=".env"
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GITHUB_CLIENT_ID=your-github-client-id
+GITHUB_CLIENT_SECRET=your-github-client-secret
+DISCORD_CLIENT_ID=your-discord-client-id
+DISCORD_CLIENT_SECRET=your-discord-client-secret
+```
+
+</Step>
+
+<Step title="Configure callback URLs">
+
+Set up callback URLs in your OAuth provider's dashboard:
+
+```
+http://localhost:3000/api/auth/callback/google
+http://localhost:3000/api/auth/callback/github
+http://localhost:3000/api/auth/callback/discord
+```
+
+For production, replace `localhost:3000` with your production domain.
+
+</Step>
+
+</Steps>
+
+### Client Setup
+
+<Tabs items={["React", "Vue", "Svelte", "Vanilla"]}>
+
+<Tab value="React">
+
+```tsx title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/react"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+})
+
+export const { signIn, useSession } = authClient
+```
+
+</Tab>
+
+<Tab value="Vue">
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/vue"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+})
+```
+
+</Tab>
+
+<Tab value="Svelte">
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/svelte"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+})
+```
+
+</Tab>
+
+<Tab value="Vanilla">
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/client"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+})
+```
+
+</Tab>
+
+</Tabs>
+
+## Usage
+
+### Basic Sign In
+
+<Tabs items={["React", "Vue", "Svelte", "Vanilla"]}>
+
+<Tab value="React">
+
+```tsx title="components/SocialAuth.tsx"
+import { signIn } from "@/lib/auth-client"
+
+export function SocialAuth() {
+  const handleGoogleSignIn = async () => {
+    await signIn.social({
+      provider: "google",
+      callbackURL: "/dashboard",
+    })
+  }
+
+  const handleGitHubSignIn = async () => {
+    await signIn.social({
+      provider: "github",
+      callbackURL: "/dashboard",
+    })
+  }
+
+  return (
+    <div>
+      <button onClick={handleGoogleSignIn}>
+        Sign in with Google
+      </button>
+      <button onClick={handleGitHubSignIn}>
+        Sign in with GitHub
+      </button>
+    </div>
+  )
+}
+```
+
+</Tab>
+
+<Tab value="Vue">
+
+```vue title="components/SocialAuth.vue"
+<script setup lang="ts">
+import { authClient } from '@/lib/auth-client'
+
+const handleGoogleSignIn = async () => {
+  await authClient.signIn.social({
+    provider: 'google',
+    callbackURL: '/dashboard',
+  })
+}
+
+const handleGitHubSignIn = async () => {
+  await authClient.signIn.social({
+    provider: 'github',
+    callbackURL: '/dashboard',
+  })
+}
+</script>
+
+<template>
+  <div>
+    <button @click="handleGoogleSignIn">Sign in with Google</button>
+    <button @click="handleGitHubSignIn">Sign in with GitHub</button>
+  </div>
+</template>
+```
+
+</Tab>
+
+<Tab value="Svelte">
+
+```svelte title="components/SocialAuth.svelte"
+<script lang="ts">
+  import { authClient } from '$lib/auth-client'
+
+  async function handleGoogleSignIn() {
+    await authClient.signIn.social({
+      provider: 'google',
+      callbackURL: '/dashboard',
+    })
+  }
+
+  async function handleGitHubSignIn() {
+    await authClient.signIn.social({
+      provider: 'github',
+      callbackURL: '/dashboard',
+    })
+  }
+</script>
+
+<div>
+  <button on:click={handleGoogleSignIn}>Sign in with Google</button>
+  <button on:click={handleGitHubSignIn}>Sign in with GitHub</button>
+</div>
+```
+
+</Tab>
+
+<Tab value="Vanilla">
+
+```ts title="social-auth.ts"
+import { authClient } from './lib/auth-client'
+
+document.getElementById('google-btn')?.addEventListener('click', async () => {
+  await authClient.signIn.social({
+    provider: 'google',
+    callbackURL: '/dashboard',
+  })
+})
+
+document.getElementById('github-btn')?.addEventListener('click', async () => {
+  await authClient.signIn.social({
+    provider: 'github',
+    callbackURL: '/dashboard',
+  })
+})
+```
+
+</Tab>
+
+</Tabs>
+
+### Advanced Options
+
+<CodeGroup>
+
+```ts title="Custom Scopes"
+await authClient.signIn.social({
+  provider: "google",
+  scopes: ["email", "profile", "openid"],
+  callbackURL: "/dashboard",
+})
+```
+
+```ts title="Disable Redirect"
+await authClient.signIn.social({
+  provider: "google",
+  disableRedirect: true,
+  callbackURL: "/dashboard",
+})
+```
+
+```ts title="ID Token Sign In (Google/Apple)"
+await authClient.signIn.social({
+  provider: "google",
+  idToken: {
+    token: "google-id-token",
+    nonce: "random-nonce",
+    accessToken: "optional-access-token",
+  },
+})
+```
+
+```ts title="Login Hint"
+await authClient.signIn.social({
+  provider: "google",
+  loginHint: "user@example.com",
+  callbackURL: "/dashboard",
+})
+```
+
+</CodeGroup>
+
+## Supported Providers
+
+Better Auth supports 40+ OAuth providers out of the box:
+
+### Popular Providers
+
+- Google
+- GitHub
+- Discord
+- Facebook
+- Apple
+- Microsoft
+- Twitter/X
+- LinkedIn
+- Slack
+- Spotify
+
+### More Providers
+
+- Twitch
+- GitLab
+- Bitbucket
+- Dropbox
+- Figma
+- Notion
+- Reddit
+- TikTok
+- And many more...
+
+For a complete list, see the [OAuth Setup Guide](/guides/oauth-setup).
+
+## Provider Configuration
+
+### Provider Options
+
+```ts
+interface SocialProviderConfig {
+  /**
+   * OAuth client ID
+   */
+  clientId: string
+
+  /**
+   * OAuth client secret
+   */
+  clientSecret: string
+
+  /**
+   * Default scopes to request
+   */
+  scopes?: string[]
+
+  /**
+   * Disable implicit sign up
+   * @default false
+   */
+  disableImplicitSignUp?: boolean
+
+  /**
+   * Disable sign up entirely
+   * @default false
+   */
+  disableSignUp?: boolean
+
+  /**
+   * Override user info on sign in
+   * @default false
+   */
+  overrideUserInfoOnSignIn?: boolean
+
+  /**
+   * Additional configuration options
+   */
+  [key: string]: any
+}
+```
+
+### Advanced Configuration
+
+<CodeGroup>
+
+```ts title="Disable Implicit Sign Up"
+export const auth = betterAuth({
+  socialProviders: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      disableImplicitSignUp: true, // Requires explicit sign up
+    },
+  },
+})
+```
+
+```ts title="Custom Scopes"
+export const auth = betterAuth({
+  socialProviders: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      scopes: ["email", "profile", "openid"],
+    },
+  },
+})
+```
+
+```ts title="Override User Info"
+export const auth = betterAuth({
+  socialProviders: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      overrideUserInfoOnSignIn: true,
+    },
+  },
+})
+```
+
+</CodeGroup>
+
+## Account Linking
+
+Better Auth automatically links social accounts to existing user accounts when the email matches.
+
+### Configuration
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  account: {
+    accountLinking: {
+      enabled: true,
+      trustedProviders: ["google", "github"],
+      allowDifferentEmails: false,
+    },
+  },
+  socialProviders: {
+    // provider configuration
+  },
+})
+```
+
+### Manual Account Linking
+
+```ts
+// Link a social account to the current user
+await authClient.linkSocial({
+  provider: "google",
+})
+```
+
+## OAuth Flow
+
+Better Auth implements the OAuth2 Authorization Code flow with PKCE:
+
+1. User clicks "Sign in with Provider"
+2. Redirect to provider's authorization page (see sign-in.ts:311-331)
+3. User grants permissions
+4. Provider redirects back with authorization code
+5. Exchange code for tokens (see callback.ts:131-140)
+6. Fetch user info from provider (see callback.ts:154-163)
+7. Create or link account (see callback.ts:252-269)
+8. Create session and set cookies (see callback.ts:271-274)
+
+## API Reference
+
+### Server Endpoints
+
+- `POST /sign-in/social` - Initiate OAuth flow (see sign-in.ts:156-333)
+- `GET /callback/:provider` - Handle OAuth callback (see callback.ts:20-287)
+
+### Client Methods
+
+```ts
+// Sign in with social provider
+await authClient.signIn.social({
+  provider: string
+  callbackURL?: string
+  newUserCallbackURL?: string
+  errorCallbackURL?: string
+  disableRedirect?: boolean
+  idToken?: {
+    token: string
+    nonce?: string
+    accessToken?: string
+    refreshToken?: string
+    expiresAt?: number
+  }
+  scopes?: string[]
+  requestSignUp?: boolean
+  loginHint?: string
+  additionalData?: Record<string, any>
+})
+
+// Link social account
+await authClient.linkSocial({
+  provider: string
+  callbackURL?: string
+})
+```
+
+## Security Features
+
+### PKCE Flow
+
+Better Auth uses PKCE (Proof Key for Code Exchange) for enhanced security (see sign-in.ts:311-322).
+
+### State Parameter
+
+State parameters prevent CSRF attacks (see sign-in.ts:311-314).
+
+### ID Token Verification
+
+For providers that support it (Google, Apple), ID tokens are verified (see sign-in.ts:232-253).
+
+## Custom OAuth Providers
+
+You can add custom OAuth providers using the Generic OAuth plugin:
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth"
+import { genericOAuth } from "better-auth/plugins"
+
+export const auth = betterAuth({
+  plugins: [
+    genericOAuth({
+      providerId: "custom-provider",
+      clientId: process.env.CUSTOM_CLIENT_ID!,
+      clientSecret: process.env.CUSTOM_CLIENT_SECRET!,
+      authorizationUrl: "https://provider.com/oauth/authorize",
+      tokenUrl: "https://provider.com/oauth/token",
+      userInfoUrl: "https://provider.com/oauth/userinfo",
+      scopes: ["openid", "email", "profile"],
+    }),
+  ],
+})
+```
+
+## Best Practices
+
+1. **Environment Variables**: Never commit OAuth credentials to version control
+2. **HTTPS Only**: Always use HTTPS in production for OAuth callbacks
+3. **Scopes**: Request only the scopes you need
+4. **Account Linking**: Configure trusted providers for automatic linking
+5. **Error Handling**: Provide clear error messages and fallback URLs
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="OAuth Setup" href="/guides/oauth-setup">
+    Learn how to set up OAuth providers
+  </Card>
+  <Card title="Account Linking" href="/concepts/authentication">
+    Understand account linking
+  </Card>
+  <Card title="Custom Providers" href="/plugins/generic-oauth">
+    Add custom OAuth providers
+  </Card>
+  <Card title="Sessions" href="/concepts/sessions">
+    Learn about session management
+  </Card>
+</CardGroup>

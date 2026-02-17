@@ -1,0 +1,642 @@
+---
+title: SCIM
+description: Implement SCIM 2.0 protocol for enterprise user provisioning
+---
+
+The SCIM (System for Cross-domain Identity Management) plugin enables enterprise identity providers to automatically provision and manage users in your Better Auth application. This is essential for SSO integrations with platforms like Okta, Azure AD, and Google Workspace.
+
+## Features
+
+- **SCIM 2.0 Compliance**: Full implementation of SCIM 2.0 protocol (RFC 7644)
+- **User Provisioning**: Automatic user creation, updates, and deactivation
+- **Organization Scoping**: Token-based organization isolation for multi-tenant apps
+- **Filtering Support**: Query users with SCIM filter expressions
+- **Standard Endpoints**: Service Provider Config, Schemas, and Resource Types
+- **Patch Operations**: Support for PATCH requests to update user attributes
+- **Lifecycle Management**: Hooks for user provisioning events
+
+## Installation
+
+The SCIM plugin is a separate package:
+
+```package-install
+@better-auth/scim
+```
+
+## Configuration
+
+### Basic Setup
+
+Add the SCIM plugin to your Better Auth configuration:
+
+```ts title="lib/auth.ts"
+import { betterAuth } from "better-auth";
+import { scim } from "@better-auth/scim";
+
+export const auth = betterAuth({
+  database: {
+    // your database configuration
+  },
+  plugins: [
+    scim(),
+  ],
+});
+```
+
+### With Organization Support
+
+SCIM tokens can be scoped to specific organizations:
+
+```ts title="lib/auth.ts"
+import { scim } from "@better-auth/scim";
+import { organization } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    organization(), // Required for organization-scoped tokens
+    scim({
+      beforeSCIMTokenGenerated: async ({ user, member, scimToken }) => {
+        // Validate user has permission to create SCIM tokens
+        if (!member || member.role !== "owner") {
+          throw new Error("Only organization owners can create SCIM tokens");
+        }
+      },
+      afterSCIMTokenGenerated: async ({ user, member, scimProvider }) => {
+        console.log(`SCIM token created for org: ${member?.organizationId}`);
+        // Log to audit trail, send notification, etc.
+      },
+    }),
+  ],
+});
+```
+
+### Secure Token Storage
+
+Configure how SCIM tokens are stored:
+
+```ts title="lib/auth.ts"
+import { scim } from "@better-auth/scim";
+import bcrypt from "bcrypt";
+
+export const auth = betterAuth({
+  plugins: [
+    scim({
+      // Hash tokens (recommended for production)
+      storeSCIMToken: "hashed",
+      
+      // Or provide custom hashing
+      storeSCIMToken: {
+        hash: async (token) => {
+          return bcrypt.hash(token, 10);
+        },
+      },
+      
+      // Or encrypt tokens
+      storeSCIMToken: {
+        encrypt: async (token) => {
+          // Your encryption logic
+          return encryptedToken;
+        },
+        decrypt: async (encryptedToken) => {
+          // Your decryption logic
+          return token;
+        },
+      },
+    }),
+  ],
+});
+```
+
+### Default SCIM Providers (Testing)
+
+For local development and testing:
+
+```ts title="lib/auth.ts"
+export const auth = betterAuth({
+  plugins: [
+    scim({
+      defaultSCIM: [
+        {
+          providerId: "test-provider",
+          scimToken: "test-token-123",
+          organizationId: "org_123", // Optional
+        },
+      ],
+    }),
+  ],
+});
+```
+
+## Usage
+
+### Generate SCIM Token
+
+Create a SCIM token for an identity provider:
+
+```ts title="app/api/scim/generate/route.ts"
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
+
+export async function POST(request: Request) {
+  const body = await request.json();
+  
+  const result = await auth.api.generateSCIMToken({
+    body: {
+      providerId: body.providerId, // e.g., "okta", "azure-ad"
+      organizationId: body.organizationId, // Optional: scope to org
+    },
+    headers: await headers(),
+  });
+
+  return Response.json(result);
+}
+```
+
+### Client-Side Token Generation
+
+From a React component:
+
+```tsx title="components/scim-setup.tsx"
+'use client';
+
+import { useState } from "react";
+import { authClient } from "@/lib/auth-client";
+
+export function SCIMSetup({ organizationId }: { organizationId?: string }) {
+  const [token, setToken] = useState<string | null>(null);
+  const [providerId, setProviderId] = useState("");
+
+  const generateToken = async () => {
+    const result = await authClient.$fetch("/scim/generate-token", {
+      method: "POST",
+      body: {
+        providerId,
+        organizationId,
+      },
+    });
+
+    if (result.data?.scimToken) {
+      setToken(result.data.scimToken);
+    }
+  };
+
+  return (
+    <div>
+      <input
+        type="text"
+        value={providerId}
+        onChange={(e) => setProviderId(e.target.value)}
+        placeholder="Provider ID (e.g., okta)"
+      />
+      <button onClick={generateToken}>Generate SCIM Token</button>
+      
+      {token && (
+        <div>
+          <p>SCIM Token (save this, it won't be shown again):</p>
+          <code>{token}</code>
+          <p>SCIM Base URL:</p>
+          <code>{window.location.origin}/api/auth/scim/v2</code>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+## SCIM Protocol Support
+
+### Standard Endpoints
+
+The plugin implements all required SCIM 2.0 endpoints:
+
+#### Service Provider Configuration
+
+```bash
+GET /api/auth/scim/v2/ServiceProviderConfig
+```
+
+Returns supported features:
+
+```json
+{
+  "patch": { "supported": true },
+  "bulk": { "supported": false },
+  "filter": { "supported": true },
+  "changePassword": { "supported": false },
+  "sort": { "supported": false },
+  "etag": { "supported": false },
+  "authenticationSchemes": [
+    {
+      "name": "OAuth Bearer Token",
+      "type": "oauthbearertoken",
+      "primary": true
+    }
+  ]
+}
+```
+
+#### Schemas
+
+```bash
+GET /api/auth/scim/v2/Schemas
+GET /api/auth/scim/v2/Schemas/{schemaId}
+```
+
+Returns supported SCIM schemas.
+
+#### Resource Types
+
+```bash
+GET /api/auth/scim/v2/ResourceTypes
+GET /api/auth/scim/v2/ResourceTypes/{resourceTypeId}
+```
+
+Returns supported resource types (User).
+
+### User Provisioning
+
+#### Create User
+
+```bash
+POST /api/auth/scim/v2/Users
+Authorization: Bearer {scimToken}
+Content-Type: application/scim+json
+
+{
+  "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+  "userName": "user@example.com",
+  "name": {
+    "givenName": "John",
+    "familyName": "Doe"
+  },
+  "emails": [
+    {
+      "value": "user@example.com",
+      "primary": true
+    }
+  ],
+  "active": true
+}
+```
+
+Response:
+
+```json
+{
+  "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+  "id": "user_abc123",
+  "userName": "user@example.com",
+  "name": {
+    "formatted": "John Doe",
+    "givenName": "John",
+    "familyName": "Doe"
+  },
+  "emails": [
+    {
+      "value": "user@example.com",
+      "primary": true
+    }
+  ],
+  "active": true,
+  "meta": {
+    "resourceType": "User",
+    "created": "2024-01-01T00:00:00Z",
+    "lastModified": "2024-01-01T00:00:00Z",
+    "location": "https://yourdomain.com/api/auth/scim/v2/Users/user_abc123"
+  }
+}
+```
+
+#### Get User
+
+```bash
+GET /api/auth/scim/v2/Users/{userId}
+Authorization: Bearer {scimToken}
+```
+
+#### Update User (PUT)
+
+```bash
+PUT /api/auth/scim/v2/Users/{userId}
+Authorization: Bearer {scimToken}
+Content-Type: application/scim+json
+
+{
+  "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+  "userName": "updated@example.com",
+  "name": {
+    "givenName": "Jane",
+    "familyName": "Doe"
+  },
+  "emails": [
+    {
+      "value": "updated@example.com",
+      "primary": true
+    }
+  ]
+}
+```
+
+#### Patch User
+
+```bash
+PATCH /api/auth/scim/v2/Users/{userId}
+Authorization: Bearer {scimToken}
+Content-Type: application/scim+json
+
+{
+  "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+  "Operations": [
+    {
+      "op": "replace",
+      "path": "active",
+      "value": false
+    },
+    {
+      "op": "replace",
+      "path": "name.givenName",
+      "value": "Jane"
+    }
+  ]
+}
+```
+
+Supported patch operations:
+- `replace`: Update field value
+- `add`: Add field value (same as replace)
+- `remove`: Clear field value
+
+#### Delete User
+
+```bash
+DELETE /api/auth/scim/v2/Users/{userId}
+Authorization: Bearer {scimToken}
+```
+
+#### List Users
+
+```bash
+GET /api/auth/scim/v2/Users
+Authorization: Bearer {scimToken}
+```
+
+With filtering:
+
+```bash
+GET /api/auth/scim/v2/Users?filter=userName eq "user@example.com"
+GET /api/auth/scim/v2/Users?filter=name.familyName eq "Doe"
+```
+
+Response:
+
+```json
+{
+  "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
+  "totalResults": 2,
+  "startIndex": 1,
+  "itemsPerPage": 2,
+  "Resources": [
+    {
+      "id": "user_abc123",
+      "userName": "user1@example.com",
+      "name": { "formatted": "John Doe" },
+      "emails": [{ "value": "user1@example.com", "primary": true }],
+      "active": true
+    },
+    {
+      "id": "user_def456",
+      "userName": "user2@example.com",
+      "name": { "formatted": "Jane Smith" },
+      "emails": [{ "value": "user2@example.com", "primary": true }],
+      "active": true
+    }
+  ]
+}
+```
+
+### SCIM Filter Expressions
+
+Supported filter operators:
+
+```
+eq (equal):
+  filter=userName eq "user@example.com"
+  filter=name.givenName eq "John"
+  filter=emails[primary eq true].value eq "user@example.com"
+
+ne (not equal):
+  filter=userName ne "user@example.com"
+
+sw (starts with):
+  filter=userName sw "john"
+
+co (contains):
+  filter=name.familyName co "Doe"
+```
+
+## Identity Provider Configuration
+
+### Okta
+
+1. In Okta Admin Console, go to **Applications** → **Create App Integration**
+2. Choose **SAML 2.0** or **OIDC**
+3. Go to **Provisioning** tab → **Configure API Integration**
+4. Enter:
+   - **Base URL**: `https://yourdomain.com/api/auth/scim/v2`
+   - **API Token**: Your generated SCIM token
+5. Enable provisioning features:
+   - Create Users
+   - Update User Attributes
+   - Deactivate Users
+
+### Azure AD (Entra ID)
+
+1. Go to **Enterprise Applications** → your app → **Provisioning**
+2. Set **Provisioning Mode** to **Automatic**
+3. Enter:
+   - **Tenant URL**: `https://yourdomain.com/api/auth/scim/v2`
+   - **Secret Token**: Your generated SCIM token
+4. Click **Test Connection**
+5. Configure **Mappings** for user attributes
+6. Set provisioning to **Automatic**
+
+### Google Workspace
+
+1. Go to **Apps** → **Web and mobile apps** → your app
+2. Click **User provisioning**
+3. Enter:
+   - **SCIM URL**: `https://yourdomain.com/api/auth/scim/v2`
+   - **Authorization Type**: Bearer token
+   - **Bearer Token**: Your generated SCIM token
+4. Configure attribute mappings
+5. Turn on provisioning
+
+## Database Schema
+
+The plugin adds a `scimProvider` table:
+
+```sql
+CREATE TABLE scimProvider (
+  id TEXT PRIMARY KEY,
+  providerId TEXT NOT NULL UNIQUE,
+  scimToken TEXT NOT NULL UNIQUE,
+  organizationId TEXT,
+  createdAt TIMESTAMP NOT NULL,
+  updatedAt TIMESTAMP NOT NULL
+);
+```
+
+## API Reference
+
+### Configuration Options
+
+#### SCIMOptions
+
+```ts
+interface SCIMOptions {
+  defaultSCIM?: Omit<SCIMProvider, "id">[];
+  beforeSCIMTokenGenerated?: (data: {
+    user: User;
+    member?: Member | null;
+    scimToken: string;
+  }) => Promise<void>;
+  afterSCIMTokenGenerated?: (data: {
+    user: User;
+    member?: Member | null;
+    scimToken: string;
+    scimProvider: SCIMProvider;
+  }) => Promise<void>;
+  storeSCIMToken?: "hashed" | "plain" | "encrypted" | {
+    hash: (scimToken: string) => Promise<string>;
+  } | {
+    encrypt: (scimToken: string) => Promise<string>;
+    decrypt: (scimToken: string) => Promise<string>;
+  };
+}
+```
+
+#### SCIMProvider
+
+```ts
+interface SCIMProvider {
+  id: string;
+  providerId: string;
+  scimToken: string;
+  organizationId?: string;
+}
+```
+
+### Server Methods
+
+#### auth.api.generateSCIMToken()
+
+```ts
+auth.api.generateSCIMToken({
+  body: {
+    providerId: string;
+    organizationId?: string;
+  },
+  headers: Headers;
+})
+```
+
+## Security Considerations
+
+### Token Security
+
+- Always use `storeSCIMToken: "hashed"` or `"encrypted"` in production
+- Store tokens securely and never log them
+- Rotate tokens regularly
+- Delete tokens when no longer needed
+
+### Organization Isolation
+
+```ts
+// Ensure users can only access their organization's SCIM data
+scim({
+  beforeSCIMTokenGenerated: async ({ user, member }) => {
+    if (!member) {
+      throw new Error("Organization membership required");
+    }
+    
+    // Check role
+    if (member.role !== "owner" && member.role !== "admin") {
+      throw new Error("Insufficient permissions");
+    }
+  },
+})
+```
+
+### Rate Limiting
+
+Consider adding rate limiting to SCIM endpoints:
+
+```ts
+import { rateLimit } from "@better-auth/rate-limit";
+
+export const auth = betterAuth({
+  plugins: [
+    scim(),
+    rateLimit({
+      window: 60 * 1000, // 1 minute
+      max: 100, // 100 requests per minute
+      customRules: [
+        {
+          pathMatcher: (path) => path.startsWith("/scim/v2/"),
+          window: 60 * 1000,
+          max: 50, // More restrictive for SCIM endpoints
+        },
+      ],
+    }),
+  ],
+});
+```
+
+## Error Handling
+
+SCIM errors follow RFC 7644 format:
+
+```json
+{
+  "schemas": ["urn:ietf:params:scim:api:messages:2.0:Error"],
+  "status": "400",
+  "scimType": "invalidFilter",
+  "detail": "The filter is invalid or unsupported"
+}
+```
+
+Common SCIM error types:
+- `invalidFilter`: Invalid filter expression
+- `uniqueness`: Resource already exists
+- `mutability`: Attempt to modify read-only field
+- `invalidSyntax`: Malformed request
+
+## Testing
+
+Test SCIM endpoints with curl:
+
+```bash
+# Generate token
+curl -X POST https://yourdomain.com/api/auth/scim/generate-token \
+  -H "Authorization: Bearer {session-token}" \
+  -H "Content-Type: application/json" \
+  -d '{"providerId": "test"}'
+
+# Create user
+curl -X POST https://yourdomain.com/api/auth/scim/v2/Users \
+  -H "Authorization: Bearer {scim-token}" \
+  -H "Content-Type: application/scim+json" \
+  -d '{
+    "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+    "userName": "test@example.com",
+    "name": {"givenName": "Test", "familyName": "User"},
+    "emails": [{"value": "test@example.com", "primary": true}]
+  }'
+
+# List users
+curl https://yourdomain.com/api/auth/scim/v2/Users \
+  -H "Authorization: Bearer {scim-token}"
+
+# Get service config
+curl https://yourdomain.com/api/auth/scim/v2/ServiceProviderConfig
+```

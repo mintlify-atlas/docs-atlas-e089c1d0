@@ -1,0 +1,327 @@
+---
+title: Server Utilities
+---
+
+Better Auth provides several utility functions and helpers for common server-side operations.
+
+## API Utilities
+
+### createAuthEndpoint
+
+Create a custom authentication endpoint.
+
+```ts
+import { createAuthEndpoint } from "better-auth/api";
+
+const myEndpoint = createAuthEndpoint(
+  "/my-endpoint",
+  {
+    method: "POST",
+    requireAuth: true,
+  },
+  async (ctx) => {
+    const session = ctx.context.session;
+    // Your logic here
+    return {
+      success: true,
+    };
+  }
+);
+```
+
+<ParamField path="path" type="string" required>
+  The endpoint path (relative to base path).
+</ParamField>
+
+<ParamField path="options" type="EndpointOptions">
+  Configuration options for the endpoint.
+  
+  - `method` - HTTP method(s) to accept
+  - `requireAuth` - Whether authentication is required
+  - `rateLimit` - Custom rate limiting config
+</ParamField>
+
+<ParamField path="handler" type="function" required>
+  The request handler function.
+</ParamField>
+
+### createAuthMiddleware
+
+Create custom middleware for authentication endpoints.
+
+```ts
+import { createAuthMiddleware } from "better-auth/api";
+
+const loggingMiddleware = createAuthMiddleware(async (ctx) => {
+  console.log("Request:", ctx.request.url);
+  // Continue to next middleware/handler
+});
+```
+
+## Request Utilities
+
+### getIp
+
+Get the client's IP address from a request, respecting proxy headers.
+
+```ts
+import { getIp } from "better-auth/api";
+
+const ip = getIp(request, {
+  trustProxy: true,
+  proxyHeaders: ["x-forwarded-for", "x-real-ip"],
+});
+```
+
+<ParamField path="request" type="Request" required>
+  The incoming request object.
+</ParamField>
+
+<ParamField path="options" type="GetIpOptions">
+  - `trustProxy` - Whether to trust proxy headers
+  - `proxyHeaders` - Array of proxy header names to check
+</ParamField>
+
+<ResponseField name="ip" type="string | null">
+  The client's IP address, or null if not found.
+</ResponseField>
+
+## Crypto Utilities
+
+### Hash and Verify
+
+Better Auth uses secure hashing for passwords. These utilities are available from `better-auth/utils`:
+
+```ts
+import { hashPassword, verifyPassword } from "better-auth/utils";
+
+// Hash a password
+const hash = await hashPassword("password123");
+
+// Verify a password
+const isValid = await verifyPassword({
+  password: "password123",
+  hash: hash,
+});
+```
+
+### Generate Token
+
+Generate secure random tokens:
+
+```ts
+import { generateRandomString } from "better-auth/utils";
+
+// Generate a random string (32 bytes by default)
+const token = generateRandomString(32);
+```
+
+## Database Utilities
+
+### getAdapter
+
+Get the database adapter from configuration:
+
+```ts
+import { getAdapter } from "better-auth/db";
+import { auth } from "./auth";
+
+const adapter = await getAdapter(auth.options);
+
+// Use adapter methods
+const user = await adapter.findOne({
+  model: "user",
+  where: [{ field: "email", value: "user@example.com" }],
+});
+```
+
+### getMigrations
+
+Get pending database migrations:
+
+```ts
+import { getMigrations } from "better-auth/db";
+import { auth } from "./auth";
+
+const { toBeAdded, toBeCreated, runMigrations } = await getMigrations(
+  auth.options
+);
+
+if (toBeAdded.length > 0 || toBeCreated.length > 0) {
+  await runMigrations();
+}
+```
+
+## Error Utilities
+
+### APIError
+
+Create API errors with proper status codes:
+
+```ts
+import { APIError } from "better-auth/api";
+
+// Throw an error
+throw new APIError("BAD_REQUEST", "Invalid input");
+
+// With custom data
+throw new APIError("BAD_REQUEST", "Validation failed", {
+  errors: ["Email is required"],
+});
+```
+
+Available error statuses:
+- `BAD_REQUEST` (400)
+- `UNAUTHORIZED` (401)
+- `FORBIDDEN` (403)
+- `NOT_FOUND` (404)
+- `METHOD_NOT_ALLOWED` (405)
+- `CONFLICT` (409)
+- `INTERNAL_SERVER_ERROR` (500)
+
+### BetterAuthError
+
+Create Better Auth-specific errors:
+
+```ts
+import { BetterAuthError } from "better-auth";
+
+throw new BetterAuthError("Custom error message");
+```
+
+## URL Utilities
+
+### normalizeURL
+
+Normalize and validate URLs:
+
+```ts
+import { normalizeURL } from "better-auth/utils";
+
+const url = normalizeURL("example.com/path");
+// Returns: "https://example.com/path"
+```
+
+### getBaseURL
+
+Get the base URL from a request:
+
+```ts
+import { getBaseURL } from "better-auth/utils";
+
+const baseURL = getBaseURL(
+  undefined, // config baseURL
+  "/api/auth", // base path
+  request, // request object
+);
+```
+
+## Context Utilities
+
+### getCurrentAdapter
+
+Get the current database adapter in async context:
+
+```ts
+import { getCurrentAdapter } from "better-auth";
+
+const adapter = await getCurrentAdapter();
+```
+
+### getCurrentAuthContext
+
+Get the current auth context:
+
+```ts
+import { getCurrentAuthContext } from "better-auth";
+
+const ctx = await getCurrentAuthContext();
+console.log(ctx.baseURL);
+console.log(ctx.options);
+```
+
+## Type Utilities
+
+### Type Inference
+
+Infer types from your Better Auth configuration:
+
+```ts
+import type { InferUser, InferSession } from "better-auth/types";
+import type { auth } from "./auth";
+
+// Infer user type
+type User = InferUser<typeof auth.options>;
+
+// Infer session type
+type Session = InferSession<typeof auth.options>;
+```
+
+## Example: Custom Endpoint with Utilities
+
+```ts title="lib/auth.ts"
+import { betterAuth } from "better-auth";
+import { createAuthEndpoint, getIp, APIError } from "better-auth/api";
+import { hashPassword } from "better-auth/utils";
+
+export const auth = betterAuth({
+  database: {
+    dialect: "postgres",
+    url: process.env.DATABASE_URL,
+  },
+  plugins: [
+    {
+      id: "custom",
+      endpoints: {
+        customAction: createAuthEndpoint(
+          "/custom-action",
+          {
+            method: "POST",
+            requireAuth: true,
+          },
+          async (ctx) => {
+            const session = ctx.context.session;
+            if (!session) {
+              throw new APIError("UNAUTHORIZED", "Not authenticated");
+            }
+            
+            const ip = getIp(ctx.request);
+            console.log("Request from IP:", ip);
+            
+            // Your custom logic
+            return {
+              success: true,
+              userId: session.user.id,
+            };
+          }
+        ),
+      },
+    },
+  ],
+});
+```
+
+## Example: Database Operations
+
+```ts
+import { getCurrentAdapter } from "better-auth";
+
+async function findUserByCustomField(fieldValue: string) {
+  const adapter = await getCurrentAdapter();
+  
+  const user = await adapter.findOne({
+    model: "user",
+    where: [
+      { field: "customField", value: fieldValue },
+    ],
+  });
+  
+  return user;
+}
+```
+
+## See Also
+
+- [betterAuth()](/api/server/better-auth) - Initialize Better Auth
+- [Endpoints](/api/server/endpoints) - Server API endpoints
+- [Custom Plugins](/plugins/custom-plugins) - Creating custom plugins

@@ -1,0 +1,199 @@
+---
+title: betterAuth()
+title: Better Auth Initialization
+---
+
+The `betterAuth()` function is the main entry point for initializing Better Auth on the server. It creates an authentication instance with your configuration and returns an object with methods to handle authentication requests.
+
+## Import
+
+```ts
+import { betterAuth } from "better-auth";
+```
+
+For minimal mode (without built-in Kysely):
+
+```ts
+import { betterAuth } from "better-auth/minimal";
+```
+
+## Usage
+
+```ts
+import { betterAuth } from "better-auth";
+
+export const auth = betterAuth({
+  database: {
+    dialect: "postgres",
+    url: process.env.DATABASE_URL,
+  },
+  emailAndPassword: {
+    enabled: true,
+  },
+  socialProviders: {
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET,
+    },
+  },
+});
+```
+
+## Parameters
+
+<ParamField path="options" type="BetterAuthOptions" required>
+  Configuration object for Better Auth. See [Configuration](/api/server/configuration) for all available options.
+</ParamField>
+
+## Return Value
+
+Returns an `Auth` object with the following properties:
+
+<ResponseField name="handler" type="(request: Request) => Promise<Response>">
+  Request handler for processing authentication requests. Pass this to your framework's routing system.
+  
+  ```ts
+  // Example with Node.js
+  export default auth.handler;
+  
+  // Example with Next.js App Router
+  export const { GET, POST } = auth.handler;
+  ```
+</ResponseField>
+
+<ResponseField name="api" type="API">
+  Server-side API methods for programmatic access to authentication operations. These can be called directly on the server.
+  
+  ```ts
+  // Create a session programmatically
+  const session = await auth.api.getSession({
+    headers: request.headers,
+  });
+  ```
+</ResponseField>
+
+<ResponseField name="options" type="BetterAuthOptions">
+  The configuration options passed to `betterAuth()`.
+</ResponseField>
+
+<ResponseField name="$context" type="Promise<AuthContext>">
+  The authentication context containing the database adapter, options, and runtime state. Useful for advanced use cases.
+</ResponseField>
+
+<ResponseField name="$ERROR_CODES" type="Record<string, string>">
+  Error codes that can be thrown by Better Auth and plugins. Useful for error handling.
+  
+  ```ts
+  if (error.code === auth.$ERROR_CODES.USER_NOT_FOUND) {
+    // Handle user not found error
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="$Infer" type="InferTypes">
+  Type inference helper for getting types of User, Session, and plugin-specific types.
+  
+  ```ts
+  type Session = typeof auth.$Infer.Session;
+  ```
+</ResponseField>
+
+## Examples
+
+### Basic Setup
+
+```ts
+import { betterAuth } from "better-auth";
+
+export const auth = betterAuth({
+  database: {
+    dialect: "postgres",
+    url: process.env.DATABASE_URL,
+  },
+  emailAndPassword: {
+    enabled: true,
+  },
+});
+```
+
+### With Plugins
+
+```ts
+import { betterAuth } from "better-auth";
+import { twoFactor } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  database: {
+    dialect: "postgres",
+    url: process.env.DATABASE_URL,
+  },
+  plugins: [
+    twoFactor({
+      issuer: "My App",
+    }),
+  ],
+});
+```
+
+### With Custom Adapter
+
+```ts
+import { betterAuth } from "better-auth/minimal";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { db } from "./db";
+
+export const auth = betterAuth({
+  database: drizzleAdapter(db, {
+    provider: "pg",
+  }),
+});
+```
+
+### Using the Handler
+
+```ts title="app/api/auth/[...all]/route.ts"
+import { auth } from "@/lib/auth";
+
+export const { GET, POST } = auth.handler;
+```
+
+### Using Server API
+
+```ts
+import { auth } from "@/lib/auth";
+
+export async function getCurrentUser(request: Request) {
+  const session = await auth.api.getSession({
+    headers: request.headers,
+  });
+  
+  if (!session) {
+    return null;
+  }
+  
+  return session.user;
+}
+```
+
+## Type Inference
+
+Better Auth provides strong type inference for your configuration:
+
+```ts
+export const auth = betterAuth({
+  // ... configuration
+});
+
+// Infer session type
+type Session = typeof auth.$Infer.Session;
+
+// Infer user type  
+type User = typeof auth.$Infer.Session.user;
+```
+
+## See Also
+
+- [Configuration](/api/server/configuration) - All configuration options
+- [Endpoints](/api/server/endpoints) - Available API endpoints
+- [Hooks](/api/server/hooks) - Database and lifecycle hooks
+- [Installation](/installation) - Getting started guide

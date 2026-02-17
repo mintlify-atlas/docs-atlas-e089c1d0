@@ -1,0 +1,589 @@
+---
+title: Comparison
+description: How Better Auth compares to other authentication solutions.
+---
+
+Choosing an authentication solution is an important decision. This guide provides an objective comparison of Better Auth with popular alternatives to help you make an informed choice.
+
+## Quick Comparison Table
+
+| Feature | Better Auth | Clerk | Auth.js | Supabase Auth | Auth0 |
+|---------|-------------|-------|---------|---------------|-------|
+| **Pricing** | Free (MIT) | $0-$99+/mo | Free (ISC) | Free-$599+/mo | Free-$1400+/mo |
+| **Self-hosted** | ✅ Yes | ❌ No | ✅ Yes | ⚠️ Complex | ❌ No |
+| **Framework support** | Universal | React-focused | Universal | Universal | Universal |
+| **Email/Password** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Social OAuth** | ✅ 50+ | ✅ 20+ | ✅ 80+ | ✅ 30+ | ✅ 30+ |
+| **Passkeys** | ✅ | ✅ | ⚠️ Manual | ✅ | ❌ |
+| **Two-Factor** | ✅ TOTP + SMS | ✅ TOTP + SMS | ⚠️ Manual | ✅ TOTP | ✅ TOTP + SMS |
+| **Organizations** | ✅ Built-in | ✅ Premium | ⚠️ Manual | ⚠️ Manual | ✅ |
+| **SSO (SAML/OIDC)** | ✅ Plugin | ✅ Premium | ⚠️ Manual | ✅ Enterprise | ✅ Premium |
+| **SCIM Provisioning** | ✅ Plugin | ✅ Premium | ❌ | ❌ | ✅ Premium |
+| **Multi-session** | ✅ | ✅ | ❌ | ❌ | ✅ |
+| **Admin dashboard** | ✅ Plugin | ✅ | ❌ | ✅ | ✅ |
+| **TypeScript** | ✅ Native | ✅ Native | ✅ Native | ✅ Native | ⚠️ Types only |
+| **Database** | Any | Managed | Any | PostgreSQL | Managed |
+| **Session strategy** | DB or JWT | DB | DB or JWT | DB or JWT | DB |
+| **Active maintenance** | ✅ Very active | ✅ Active | ⚠️ Limited | ✅ Active | ✅ Active |
+| **Open source** | ✅ MIT | ❌ Closed | ✅ ISC | ✅ Apache 2.0 | ❌ Closed |
+
+## Detailed Comparisons
+
+### Better Auth vs Clerk
+
+<Tabs items={["Overview", "Pricing", "Features", "When to choose"]}>
+<Tab value="Overview">
+**Clerk** is a managed authentication service with a great developer experience and modern UI components.
+
+**Key Differences:**
+
+| Aspect | Better Auth | Clerk |
+|--------|-------------|-------|
+| **Hosting** | Self-hosted | Managed (SaaS) |
+| **Cost** | Infrastructure only | $0-$99+/month + overages |
+| **Data ownership** | Complete control | Clerk-hosted |
+| **Customization** | Full control | Limited to provided options |
+| **Vendor lock-in** | None | High |
+| **Setup complexity** | Higher initially | Lower (managed) |
+</Tab>
+
+<Tab value="Pricing">
+**Clerk Pricing (as of 2026):**
+- Free: 10,000 MAU (monthly active users)
+- Pro: $25/mo + $0.02/MAU over 10K
+- Enterprise: Custom pricing
+
+**Better Auth Pricing:**
+- $0 (open source)
+- You pay for:
+  - Database hosting (~$5-50/mo)
+  - Server hosting (~$5-100/mo)
+  - Email service (~$0.10-0.50 per 1K emails)
+
+**Cost Comparison Example:**
+
+| Users | Clerk Cost/mo | Better Auth Cost/mo* |
+|-------|---------------|----------------------|
+| 10K | $0 | ~$20 |
+| 50K | $825 | ~$50 |
+| 100K | $1,825 | ~$100 |
+| 500K | $9,825 | ~$200 |
+
+*Estimated infrastructure costs. Actual costs vary by provider and usage.
+
+**Winner:** Better Auth for cost at scale, Clerk for convenience.
+</Tab>
+
+<Tab value="Features">
+**Better Auth advantages:**
+- ✅ Complete control over data and infrastructure
+- ✅ No per-user pricing
+- ✅ Framework-agnostic (works with any framework)
+- ✅ Advanced features included (SSO, SCIM, OAuth provider)
+- ✅ Open source (audit, extend, contribute)
+
+**Clerk advantages:**
+- ✅ Managed infrastructure (no ops burden)
+- ✅ Pre-built UI components
+- ✅ Built-in user management dashboard
+- ✅ Faster initial setup
+- ✅ Automatic scaling
+
+**Shared features:**
+- Email/password authentication
+- Social OAuth providers
+- Passkeys (WebAuthn)
+- Two-factor authentication
+- Organizations/teams
+- Session management
+- Email verification
+</Tab>
+
+<Tab value="When to choose">
+**Choose Better Auth if:**
+- You want to own your auth infrastructure
+- You're cost-conscious at scale (50K+ users)
+- You need complete customization
+- You're building for enterprise with data residency requirements
+- You want to avoid vendor lock-in
+- You prefer open source solutions
+
+**Choose Clerk if:**
+- You want a managed solution (no ops)
+- You're building an MVP quickly
+- You have < 10K users and want to stay on free tier
+- You prefer pre-built UI components
+- You don't want to manage infrastructure
+</Tab>
+</Tabs>
+
+### Better Auth vs Auth.js (NextAuth.js)
+
+<Tabs items={["Overview", "History", "Features", "When to choose"]}>
+<Tab value="Overview">
+**Auth.js** (formerly NextAuth.js) is a popular open-source authentication library, particularly for Next.js.
+
+**Key Differences:**
+
+| Aspect | Better Auth | Auth.js |
+|--------|-------------|----------|
+| **Active maintenance** | Very active | Limited |
+| **Feature completeness** | Comprehensive | Basic + community adapters |
+| **Developer experience** | Modern, type-safe | Good, improving |
+| **Documentation** | Comprehensive | Good, sometimes outdated |
+| **Plugin ecosystem** | Growing | Established but fragmented |
+| **Framework support** | Universal | Next.js-first, adapters for others |
+| **Core team** | Active full-time | Part-time |
+</Tab>
+
+<Tab value="History">
+**Auth.js Background:**
+- Created in 2016 as NextAuth.js
+- Rebranded to Auth.js in 2023
+- Core maintainer moved to Better Auth team in 2024
+- Now in maintenance mode (security fixes only)
+
+**Better Auth Background:**
+- Started in 2024 by Auth.js core maintainer
+- Built on lessons learned from Auth.js
+- Active development with regular releases
+- Growing community and ecosystem
+
+<Callout type="info">
+The creator and core maintainer of Auth.js v5 is now working full-time on Better Auth. Auth.js continues to receive security patches and critical bug fixes.
+</Callout>
+</Tab>
+
+<Tab value="Features">
+**Better Auth advantages:**
+- ✅ More features out of the box (2FA, passkeys, organizations, SSO)
+- ✅ Better TypeScript support and DX
+- ✅ Active development and feature releases
+- ✅ Modern architecture
+- ✅ Comprehensive plugin system
+- ✅ Better error messages and debugging
+- ✅ Built-in admin features
+- ✅ Better session management options
+
+**Auth.js advantages:**
+- ✅ Larger existing community
+- ✅ More battle-tested (8+ years)
+- ✅ More third-party adapters and guides
+- ✅ Established in enterprise
+
+**Shared features:**
+- Email/password authentication
+- Social OAuth (80+ providers in Auth.js vs 50+ in Better Auth)
+- Database or JWT sessions
+- Email verification
+- CSRF protection
+- Framework adapters
+</Tab>
+
+<Tab value="When to choose">
+**Choose Better Auth if:**
+- You're starting a new project
+- You want modern features (passkeys, TOTP, organizations)
+- You need active support and feature development
+- You want better TypeScript DX
+- You're building enterprise features (SSO, SCIM)
+
+**Choose Auth.js if:**
+- You have an existing Auth.js project that works
+- You need a specific provider or adapter only Auth.js has
+- You're very comfortable with the Auth.js API
+- You prefer maximum community resources
+
+**Migration:** See our [Auth.js → Better Auth Migration Guide](/guides/next-auth-migration-guide).
+</Tab>
+</Tabs>
+
+### Better Auth vs Supabase Auth
+
+<Tabs items={["Overview", "Architecture", "Features", "When to choose"]}>
+<Tab value="Overview">
+**Supabase Auth** is the authentication system built into the Supabase backend platform.
+
+**Key Differences:**
+
+| Aspect | Better Auth | Supabase Auth |
+|--------|-------------|---------------|
+| **Coupling** | Standalone | Tied to Supabase |
+| **Database** | Any | PostgreSQL only |
+| **Framework support** | Universal | Universal (via client) |
+| **Pricing** | Infrastructure only | Free-$599+/mo |
+| **Backend services** | Auth only | Full backend (DB, Storage, Functions) |
+| **Self-hosting** | Easy | Complex (full stack) |
+</Tab>
+
+<Tab value="Architecture">
+**Better Auth:**
+- Standalone library
+- Works with any database
+- Works with any backend framework
+- Works with any hosting provider
+- You control the entire stack
+
+**Supabase Auth:**
+- Part of Supabase platform
+- Requires PostgreSQL (Supabase-managed or self-hosted)
+- Integrates with Supabase RLS (Row Level Security)
+- Best used with full Supabase stack
+- Self-hosting requires running entire Supabase platform
+
+**Winner:** Better Auth for flexibility, Supabase for integrated backend.
+</Tab>
+
+<Tab value="Features">
+**Better Auth advantages:**
+- ✅ Framework-agnostic
+- ✅ Works with any database
+- ✅ More plugin options
+- ✅ Better TypeScript inference
+- ✅ OAuth provider functionality
+- ✅ SCIM provisioning
+- ✅ Advanced organization features
+
+**Supabase Auth advantages:**
+- ✅ Integrated with Supabase ecosystem
+- ✅ Row Level Security integration
+- ✅ Realtime subscriptions
+- ✅ Pre-built UI components (via supabase-ui)
+- ✅ Managed infrastructure option
+- ✅ Built-in storage and functions
+
+**Shared features:**
+- Email/password authentication
+- Social OAuth providers
+- Email verification
+- Password reset
+- Two-factor authentication
+- Session management
+- Passkeys/WebAuthn
+</Tab>
+
+<Tab value="When to choose">
+**Choose Better Auth if:**
+- You're not using Supabase for other services
+- You need framework flexibility
+- You want to use a different database
+- You need advanced organization features
+- You're building an OAuth provider
+- You need SCIM provisioning
+
+**Choose Supabase Auth if:**
+- You're already using Supabase
+- You want an integrated backend solution
+- You need Row Level Security
+- You want managed database + auth
+- You prefer the Supabase ecosystem
+
+**Migration:** See our [Supabase → Better Auth Migration Guide](/guides/supabase-migration-guide).
+</Tab>
+</Tabs>
+
+### Better Auth vs Auth0
+
+<Tabs items={["Overview", "Pricing", "Features", "When to choose"]}>
+<Tab value="Overview">
+**Auth0** (now part of Okta) is an enterprise-focused managed authentication service.
+
+**Key Differences:**
+
+| Aspect | Better Auth | Auth0 |
+|--------|-------------|-------|
+| **Hosting** | Self-hosted | Managed (SaaS) |
+| **Cost** | Infrastructure only | $0-$1400+/month |
+| **Target** | All projects | Enterprise-focused |
+| **Vendor lock-in** | None | High |
+| **Open source** | Yes (MIT) | No |
+| **Setup complexity** | Moderate | High |
+| **Enterprise features** | ✅ Via plugins | ✅ Native |
+</Tab>
+
+<Tab value="Pricing">
+**Auth0 Pricing (as of 2026):**
+- Free: 7,500 MAU
+- Essentials: $35/mo (500 MAU) + $0.07/MAU
+- Professional: $240/mo + $0.07/MAU
+- Enterprise: Custom ($1400+/mo typically)
+
+**Better Auth Pricing:**
+- $0 (open source)
+- Infrastructure costs: ~$20-200/mo depending on scale
+
+**Cost Comparison:**
+
+| Users | Auth0 Cost/mo | Better Auth Cost/mo* |
+|-------|---------------|----------------------|
+| 7.5K | $0 | ~$20 |
+| 50K | $3,690 | ~$50 |
+| 100K | $7,240 | ~$100 |
+| 500K | $35,240 | ~$200 |
+
+*Estimated. Actual costs vary.
+
+**Winner:** Better Auth for cost, especially at scale.
+</Tab>
+
+<Tab value="Features">
+**Better Auth advantages:**
+- ✅ Open source and self-hosted
+- ✅ No per-user pricing
+- ✅ Complete control
+- ✅ No vendor lock-in
+- ✅ Framework-agnostic
+- ✅ Modern developer experience
+- ✅ Simpler setup
+
+**Auth0 advantages:**
+- ✅ Enterprise-proven
+- ✅ Managed infrastructure
+- ✅ Advanced security features
+- ✅ Extensive integrations
+- ✅ Pre-built UI (Universal Login)
+- ✅ Advanced analytics
+- ✅ Dedicated support
+- ✅ Compliance certifications
+
+**Shared features:**
+- Email/password authentication
+- Social OAuth providers
+- Multi-factor authentication
+- SSO (SAML, OIDC)
+- Organizations
+- Role-based access control
+- Session management
+</Tab>
+
+<Tab value="When to choose">
+**Choose Better Auth if:**
+- You want to own your infrastructure
+- You're cost-conscious (especially at scale)
+- You want open source
+- You need customization
+- You're building for mid-size projects
+- You want to avoid vendor lock-in
+
+**Choose Auth0 if:**
+- You need enterprise compliance (SOC 2, ISO 27001)
+- You want managed infrastructure
+- You need advanced security features
+- You have budget for per-user pricing
+- You need dedicated support
+- You're in a large enterprise
+
+**Migration:** See our [Auth0 → Better Auth Migration Guide](/guides/auth0-migration-guide).
+</Tab>
+</Tabs>
+
+## Feature Comparison Matrix
+
+### Core Authentication
+
+| Feature | Better Auth | Clerk | Auth.js | Supabase | Auth0 |
+|---------|-------------|-------|---------|----------|-------|
+| Email/Password | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Magic Link | ✅ Plugin | ✅ | ✅ | ✅ | ✅ |
+| Social OAuth | ✅ 50+ | ✅ 20+ | ✅ 80+ | ✅ 30+ | ✅ 30+ |
+| Passwordless | ✅ | ✅ | ⚠️ Manual | ✅ | ✅ |
+| Anonymous users | ✅ Plugin | ✅ | ⚠️ Manual | ✅ | ✅ |
+
+### Advanced Features
+
+| Feature | Better Auth | Clerk | Auth.js | Supabase | Auth0 |
+|---------|-------------|-------|---------|----------|-------|
+| Passkeys (WebAuthn) | ✅ Plugin | ✅ | ⚠️ Manual | ✅ | ❌ |
+| TOTP 2FA | ✅ Plugin | ✅ | ⚠️ Manual | ✅ | ✅ |
+| SMS 2FA | ✅ Plugin | ✅ | ⚠️ Manual | ✅ | ✅ |
+| Email OTP | ✅ Plugin | ✅ | ⚠️ Manual | ✅ | ✅ |
+| Backup codes | ✅ Plugin | ✅ | ❌ | ❌ | ✅ |
+| Organizations | ✅ Plugin | ✅ | ⚠️ Manual | ⚠️ Manual | ✅ |
+| SSO (SAML) | ✅ Plugin | ✅ Premium | ⚠️ Manual | ✅ Enterprise | ✅ |
+| SSO (OIDC) | ✅ Plugin | ✅ Premium | ⚠️ Manual | ✅ Enterprise | ✅ |
+| SCIM | ✅ Plugin | ✅ Premium | ❌ | ❌ | ✅ |
+| Multi-session | ✅ Plugin | ✅ | ❌ | ❌ | ✅ |
+| Device tracking | ✅ | ✅ | ❌ | ❌ | ✅ |
+
+### Developer Experience
+
+| Feature | Better Auth | Clerk | Auth.js | Supabase | Auth0 |
+|---------|-------------|-------|---------|----------|-------|
+| TypeScript | ✅ Native | ✅ Native | ✅ Native | ✅ Native | ⚠️ Types |
+| Type inference | ✅ Excellent | ✅ Good | ⚠️ Fair | ✅ Good | ⚠️ Manual |
+| Framework agnostic | ✅ | ⚠️ React-focused | ✅ | ✅ | ✅ |
+| Documentation | ✅ Good | ✅ Excellent | ⚠️ Fair | ✅ Good | ✅ Good |
+| Setup time | ⚠️ Moderate | ✅ Quick | ⚠️ Moderate | ✅ Quick | ⚠️ Complex |
+
+### Operations & Maintenance
+
+| Feature | Better Auth | Clerk | Auth.js | Supabase | Auth0 |
+|---------|-------------|-------|---------|----------|-------|
+| Self-hostable | ✅ | ❌ | ✅ | ⚠️ Complex | ❌ |
+| Database choice | ✅ Any | ❌ Managed | ✅ Any | ⚠️ PostgreSQL | ❌ Managed |
+| Session strategy | ✅ DB or JWT | ⚠️ DB | ✅ DB or JWT | ✅ DB or JWT | ⚠️ DB |
+| Custom domains | ✅ | ✅ Premium | ✅ | ✅ | ✅ |
+| Audit logs | ✅ Plugin | ✅ | ⚠️ Manual | ✅ | ✅ |
+| Analytics | ⚠️ Manual | ✅ | ⚠️ Manual | ✅ | ✅ |
+
+## Decision Guide
+
+### Choose Better Auth if you:
+
+<Cards>
+  <Card>
+    **Want complete control**
+    
+    Own your data, infrastructure, and destiny. No vendor lock-in or pricing surprises.
+  </Card>
+  
+  <Card>
+    **Are cost-conscious at scale**
+    
+    Pay only for infrastructure, not per-user. Significant savings past 50K+ users.
+  </Card>
+  
+  <Card>
+    **Need customization**
+    
+    Full access to source code. Extend and modify as needed.
+  </Card>
+  
+  <Card>
+    **Prefer open source**
+    
+    MIT licensed. Audit, contribute, and benefit from community improvements.
+  </Card>
+</Cards>
+
+### Choose a managed service if you:
+
+<Cards>
+  <Card>
+    **Want zero ops**
+    
+    Don't want to manage auth infrastructure. Prefer managed scaling and monitoring.
+  </Card>
+  
+  <Card>
+    **Need rapid MVP**
+    
+    Want to launch quickly with pre-built UI and minimal setup.
+  </Card>
+  
+  <Card>
+    **Have small user base**
+    
+    Under 10K users and likely to stay there. Free tiers can work well.
+  </Card>
+  
+  <Card>
+    **Want enterprise support**
+    
+    Need SLAs, dedicated support, and compliance certifications.
+  </Card>
+</Cards>
+
+## Migration Support
+
+Migrating from another solution? We have detailed guides:
+
+<CardGroup cols={2}>
+  <Card
+    href="/guides/clerk-migration-guide"
+    title="From Clerk"
+    description="Step-by-step migration with data export"
+  />
+  <Card
+    href="/guides/next-auth-migration-guide"
+    title="From Auth.js"
+    description="Database schema migration and code updates"
+  />
+  <Card
+    href="/guides/supabase-migration-guide"
+    title="From Supabase"
+    description="Move away from Supabase ecosystem"
+  />
+  <Card
+    href="/guides/auth0-migration-guide"
+    title="From Auth0"
+    description="Enterprise migration guide"
+  />
+</CardGroup>
+
+## Common Misconceptions
+
+### "Managed services are always easier"
+
+**Reality:** Initial setup is faster with managed services, but:
+- You may spend more time working around limitations
+- Debugging issues without source code access is harder
+- Customization requires waiting for provider support
+- Better Auth's setup is a one-time investment
+
+### "Self-hosted means more security risk"
+
+**Reality:** Both have trade-offs:
+- Managed: Trust provider's security, but also their vulnerabilities
+- Self-hosted: Your responsibility, but you control updates and patching
+- Better Auth is open source: community reviews = more eyes on security
+
+### "Managed services scale better"
+
+**Reality:** 
+- Both can scale to millions of users
+- Better Auth gives you more control over performance optimization
+- Database scaling is the real bottleneck for both
+- Managed services can have rate limits or throttling
+
+### "Per-user pricing is fair"
+
+**Reality:**
+- Costs grow linearly with success
+- Can become largest infrastructure expense
+- Auth0 example: 500K users = $35K/month = $420K/year
+- Better Auth: Infrastructure stays ~$200/month regardless
+
+## Conclusion
+
+There's no universal "best" authentication solution. The right choice depends on your:
+
+- **Budget**: Better Auth wins at scale, managed services win for small projects on free tier
+- **Control needs**: Better Auth for customization, managed for convenience
+- **Team size**: Better Auth for technical teams, managed for non-technical teams
+- **Timeline**: Managed services faster initially, Better Auth faster long-term
+- **Philosophy**: Open source vs proprietary, self-hosted vs managed
+
+Better Auth aims to provide:
+1. **Best-in-class DX** - Great developer experience with TypeScript
+2. **Cost efficiency** - No per-user pricing, just infrastructure
+3. **Complete control** - Own your data and customize freely
+4. **Modern features** - Passkeys, SSO, organizations, and more
+5. **Active development** - Regular releases and community support
+
+## Try Better Auth
+
+Ready to give Better Auth a try?
+
+<CardGroup cols={2}>
+  <Card
+    href="/installation"
+    title="Get Started"
+    description="Install Better Auth in 5 minutes"
+  />
+  <Card
+    href="/resources/examples"
+    title="See Examples"
+    description="Explore demo applications"
+  />
+  <Card
+    href="https://demo.better-auth.com"
+    title="Live Demo"
+    description="Try all features interactively"
+  />
+  <Card
+    href="https://discord.gg/better-auth"
+    title="Join Discord"
+    description="Chat with the community"
+  />
+</CardGroup>

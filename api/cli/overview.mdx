@@ -1,0 +1,326 @@
+---
+title: CLI Overview
+---
+
+The Better Auth CLI provides commands to help you set up and manage your authentication system. It handles initialization, schema generation, database migrations, and more.
+
+## Installation
+
+The CLI is included with the Better Auth package:
+
+```bash
+npm install better-auth
+```
+
+Or use it directly with `npx`:
+
+```bash
+npx @better-auth/cli [command]
+```
+
+## Available Commands
+
+### init
+
+Interactive setup wizard to initialize Better Auth in your project.
+
+```bash
+npx @better-auth/cli init
+```
+
+The `init` command helps you:
+- Install Better Auth dependencies
+- Choose a database dialect
+- Select authentication plugins
+- Generate auth configuration files
+- Set up environment variables
+
+See [init command](/api/cli/init) for details.
+
+### generate
+
+Generate database schema files for your ORM/query builder.
+
+```bash
+npx @better-auth/cli generate
+```
+
+Generates schema files for:
+- Prisma
+- Drizzle
+- Kysely
+
+See [generate command](/api/cli/generate) for details.
+
+### migrate
+
+Run database migrations (Kysely only).
+
+```bash
+npx @better-auth/cli migrate
+```
+
+Automatically:
+- Detects schema changes
+- Creates new tables
+- Adds new columns
+- Updates existing schema
+
+See [migrate command](/api/cli/migrate) for details.
+
+### secret
+
+Generate a secure secret for `BETTER_AUTH_SECRET`.
+
+```bash
+npx @better-auth/cli secret
+```
+
+See [secret command](/api/cli/secret) for details.
+
+## Common Workflows
+
+### Initial Setup
+
+```bash
+# 1. Initialize Better Auth
+npx @better-auth/cli init
+
+# 2. Generate database schema
+npx @better-auth/cli generate
+
+# 3. Run migrations (Kysely) or apply schema (Prisma/Drizzle)
+npx @better-auth/cli migrate
+# or
+npx prisma db push
+# or
+npx drizzle-kit push
+```
+
+### Adding a Plugin
+
+```bash
+# 1. Update your auth config with the plugin
+# 2. Generate updated schema
+npx @better-auth/cli generate
+
+# 3. Apply the changes
+npx @better-auth/cli migrate
+```
+
+### Working with Custom Fields
+
+```bash
+# 1. Add custom fields to your auth config
+# 2. Regenerate schema
+npx @better-auth/cli generate
+
+# 3. Apply migrations
+npx @better-auth/cli migrate
+```
+
+## Global Options
+
+These options work with all commands:
+
+<ParamField path="--cwd" type="string" default="process.cwd()">
+  Working directory for the command.
+  
+  ```bash
+  npx @better-auth/cli generate --cwd ./my-project
+  ```
+</ParamField>
+
+<ParamField path="--config" type="string">
+  Path to your auth configuration file.
+  
+  ```bash
+  npx @better-auth/cli generate --config ./lib/auth.ts
+  ```
+</ParamField>
+
+<ParamField path="--help" type="boolean">
+  Show help for a command.
+  
+  ```bash
+  npx @better-auth/cli generate --help
+  ```
+</ParamField>
+
+## Configuration
+
+The CLI automatically finds your auth configuration file by looking for:
+
+- `auth.ts`
+- `auth.js`
+- `lib/auth.ts`
+- `src/lib/auth.ts`
+- And other common locations
+
+You can specify a custom path with `--config`:
+
+```bash
+npx @better-auth/cli generate --config ./custom/path/auth.ts
+```
+
+## Package Manager Detection
+
+The CLI automatically detects your package manager:
+
+- Checks for `pnpm-lock.yaml` → uses `pnpm`
+- Checks for `bun.lockb` → uses `bun`
+- Falls back to `npm`
+
+You can specify a package manager with the `--package-manager` flag (on `init` command):
+
+```bash
+npx @better-auth/cli init --package-manager pnpm
+```
+
+## TypeScript Configuration
+
+Better Auth requires TypeScript's strict mode. The CLI will:
+
+1. Check your `tsconfig.json`
+2. Prompt to enable strict mode if not already enabled
+3. Update the config file if you agree
+
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "strict": true
+  }
+}
+```
+
+## Environment Variables
+
+The CLI can help set up required environment variables:
+
+```env
+# Required
+BETTER_AUTH_SECRET="your-secret-key-here"
+BETTER_AUTH_URL="http://localhost:3000"
+
+# Database (example for PostgreSQL)
+DATABASE_URL="postgresql://user:password@localhost:5432/db"
+```
+
+Generate a secure secret:
+
+```bash
+npx @better-auth/cli secret
+```
+
+## Exit Codes
+
+The CLI uses standard exit codes:
+
+- `0` - Success
+- `1` - Error or user cancellation
+
+## Troubleshooting
+
+### Command Not Found
+
+If you get "command not found", try:
+
+```bash
+# Use npx
+npx @better-auth/cli [command]
+
+# Or install globally
+npm install -g @better-auth/cli
+```
+
+### Config File Not Found
+
+If the CLI can't find your config file:
+
+```bash
+# Specify the path explicitly
+npx @better-auth/cli generate --config ./path/to/auth.ts
+```
+
+### Database Connection Issues
+
+Ensure your database is running and environment variables are set:
+
+```bash
+# Check your .env file
+cat .env
+
+# Test database connection
+npx @better-auth/cli migrate
+```
+
+### TypeScript Errors
+
+Ensure strict mode is enabled:
+
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "strict": true
+  }
+}
+```
+
+## Examples
+
+### Complete New Project Setup
+
+```bash
+# 1. Install Better Auth
+npm install better-auth
+
+# 2. Run init wizard
+npx @better-auth/cli init
+
+# 3. Generate secret
+npx @better-auth/cli secret
+
+# 4. Update .env with the secret
+
+# 5. Generate schema
+npx @better-auth/cli generate
+
+# 6. Run migrations
+npx @better-auth/cli migrate
+
+# 7. Start your app
+npm run dev
+```
+
+### Add Two-Factor Authentication
+
+```bash
+# 1. Update auth.ts to include twoFactor plugin
+
+# 2. Generate updated schema
+npx @better-auth/cli generate
+
+# 3. Apply migrations
+npx @better-auth/cli migrate
+```
+
+### Working with Multiple Environments
+
+```bash
+# Development
+npx @better-auth/cli generate --cwd ./
+
+# Staging (different config)
+npx @better-auth/cli generate --config ./auth.staging.ts
+
+# Production (different config)
+npx @better-auth/cli generate --config ./auth.prod.ts
+```
+
+## See Also
+
+- [init Command](/api/cli/init) - Interactive setup
+- [generate Command](/api/cli/generate) - Schema generation
+- [migrate Command](/api/cli/migrate) - Database migrations
+- [secret Command](/api/cli/secret) - Secret generation
+- [Installation Guide](/installation) - Getting started

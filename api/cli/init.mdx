@@ -1,0 +1,363 @@
+---
+title: init Command
+---
+
+The `init` command provides an interactive setup wizard to initialize Better Auth in your project.
+
+## Usage
+
+```bash
+npx @better-auth/cli init
+```
+
+## What It Does
+
+The `init` command walks you through:
+
+1. **Installing Better Auth** - Checks if Better Auth is installed and offers to install/update it
+2. **Database Setup** - Helps you choose and configure a database
+3. **Plugin Selection** - Select authentication plugins to include
+4. **File Generation** - Creates auth configuration and client files
+5. **Environment Variables** - Sets up required environment variables
+6. **Dependency Installation** - Installs required dependencies
+
+## Options
+
+<ParamField path="--cwd" type="string" default="process.cwd()">
+  Working directory for the project.
+  
+  ```bash
+  npx @better-auth/cli init --cwd ./my-project
+  ```
+</ParamField>
+
+<ParamField path="--config" type="string">
+  Path where the auth config should be created.
+  
+  ```bash
+  npx @better-auth/cli init --config ./lib/auth.ts
+  ```
+</ParamField>
+
+<ParamField path="--skip-db" type="boolean">
+  Skip database setup.
+  
+  ```bash
+  npx @better-auth/cli init --skip-db
+  ```
+</ParamField>
+
+<ParamField path="--skip-plugins" type="boolean">
+  Skip plugin selection.
+  
+  ```bash
+  npx @better-auth/cli init --skip-plugins
+  ```
+</ParamField>
+
+<ParamField path="--package-manager" type="string">
+  Specify package manager to use (`npm`, `pnpm`, `yarn`, or `bun`).
+  
+  ```bash
+  npx @better-auth/cli init --package-manager pnpm
+  ```
+</ParamField>
+
+<ParamField path="--tsconfig" type="string">
+  Path to tsconfig.json file.
+  
+  ```bash
+  npx @better-auth/cli init --tsconfig ./tsconfig.app.json
+  ```
+</ParamField>
+
+## Interactive Prompts
+
+### 1. TypeScript Configuration
+
+The CLI checks if strict mode is enabled:
+
+```
+Better Auth requires your tsconfig.json to have "compilerOptions.strict" set to true.
+Would you like us to set strict to true? (Y/n)
+```
+
+### 2. Better Auth Installation
+
+If Better Auth is not installed or outdated:
+
+```
+Would you like to install Better Auth? (Y/n)
+```
+
+### 3. Application Name
+
+```
+What is the name of your application?
+> My App
+```
+
+### 4. Configuration File
+
+If no config file is found:
+
+```
+Would you like to create an auth config file?
+> Yes
+> No
+```
+
+### 5. Database Setup
+
+```
+Would you like to set up your database?
+> Yes
+> No
+```
+
+If yes, choose a database:
+
+```
+Choose a Database Dialect:
+> sqlite
+  mysql
+  postgres
+  mssql
+  mongodb
+  drizzle:pg
+  drizzle:mysql
+  drizzle:sqlite
+  prisma:postgresql
+  prisma:mysql
+  prisma:sqlite
+```
+
+### 6. Plugin Selection
+
+```
+Would you like to set up plugins?
+> Yes
+> No
+```
+
+If yes, select plugins:
+
+```
+Select your new plugins:
+◯ two-factor
+◯ username
+◯ anonymous
+◯ phone-number
+◯ magic-link
+◯ email-otp
+◯ passkey
+◯ organization
+◯ admin
+◯ ...
+```
+
+### 7. Client Configuration
+
+```
+Would you like to create an auth client config file?
+> Yes
+> No
+```
+
+### 8. Environment Variables
+
+```
+Do you want to add BETTER_AUTH_SECRET and BETTER_AUTH_URL to .env?
+> Yes
+> No
+> Choose other file(s)
+```
+
+## Generated Files
+
+The `init` command can generate:
+
+### Auth Configuration File
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth";
+import { twoFactor, organization } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  appName: "My App",
+  database: {
+    dialect: "postgres",
+    url: process.env.DATABASE_URL,
+  },
+  emailAndPassword: {
+    enabled: true,
+  },
+  plugins: [
+    twoFactor({
+      issuer: "My App",
+    }),
+    organization(),
+  ],
+});
+```
+
+### Auth Client File
+
+```ts title="auth-client.ts"
+import { createAuthClient } from "better-auth/react";
+import { 
+  inferAdditionalFields,
+  twoFactorClient,
+  organizationClient,
+} from "better-auth/client/plugins";
+import type { auth } from "./auth";
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [
+    inferAdditionalFields<typeof auth>(),
+    twoFactorClient(),
+    organizationClient(),
+  ],
+});
+```
+
+### Environment Variables
+
+```env title=".env"
+# Auth Secret
+BETTER_AUTH_SECRET="generated-secret-here"
+BETTER_AUTH_URL="http://localhost:3000"
+
+# Database
+DATABASE_URL="postgresql://user:password@localhost:5432/db"
+```
+
+## Supported Databases
+
+The init command supports:
+
+### Built-in Kysely Dialects
+
+- **sqlite** - SQLite
+- **mysql** - MySQL
+- **postgres** - PostgreSQL
+- **mssql** - Microsoft SQL Server
+
+### Drizzle ORM
+
+- **drizzle:pg** - PostgreSQL with Drizzle
+- **drizzle:mysql** - MySQL with Drizzle
+- **drizzle:sqlite** - SQLite with Drizzle
+
+### Prisma ORM
+
+- **prisma:postgresql** - PostgreSQL with Prisma
+- **prisma:mysql** - MySQL with Prisma
+- **prisma:sqlite** - SQLite with Prisma
+
+### NoSQL
+
+- **mongodb** - MongoDB
+
+## Supported Plugins
+
+Available plugins during init:
+
+- **two-factor** - Two-factor authentication
+- **username** - Username-based auth
+- **anonymous** - Anonymous sessions
+- **phone-number** - Phone number auth
+- **magic-link** - Magic link sign-in
+- **email-otp** - Email OTP verification
+- **passkey** - Passkey/WebAuthn support
+- **organization** - Multi-tenant organizations
+- **admin** - Admin role and permissions
+- **generic-oauth** - Custom OAuth providers
+- **one-tap** - Google One Tap
+- **api-key** - API key authentication
+- **multi-session** - Multiple concurrent sessions
+- **oidc** - OpenID Connect provider
+- **sso** - Enterprise SSO
+- **bearer** - Bearer token auth
+- **oauth-proxy** - OAuth proxy for edge runtimes
+- **open-api** - OpenAPI documentation
+- **jwt** - JWT token support
+
+## Examples
+
+### Basic Setup
+
+```bash
+npx @better-auth/cli init
+```
+
+Follow the prompts to:
+1. Choose PostgreSQL database
+2. Select no plugins
+3. Create auth.ts and auth-client.ts
+4. Set up environment variables
+
+### Skip Database Setup
+
+```bash
+npx @better-auth/cli init --skip-db
+```
+
+Use this if you want to configure the database manually.
+
+### Skip Plugin Selection
+
+```bash
+npx @better-auth/cli init --skip-plugins
+```
+
+Add plugins to your config file manually later.
+
+### Specify Config Location
+
+```bash
+npx @better-auth/cli init --config ./lib/server/auth.ts
+```
+
+### Use Specific Package Manager
+
+```bash
+npx @better-auth/cli init --package-manager pnpm
+```
+
+## Next Steps
+
+After running `init`:
+
+1. **Review generated files** - Check `auth.ts` and `auth-client.ts`
+2. **Update environment variables** - Fill in your database URL and other values
+3. **Generate schema** - Run `npx @better-auth/cli generate`
+4. **Run migrations** - Run `npx @better-auth/cli migrate` or use your ORM
+5. **Start your app** - Your authentication is ready!
+
+## Troubleshooting
+
+### Package Manager Not Found
+
+If the CLI can't find your package manager:
+
+```bash
+npx @better-auth/cli init --package-manager npm
+```
+
+### TypeScript Strict Mode
+
+If you don't want to enable strict mode, you can decline the prompt, but you may encounter type issues.
+
+### Existing Files
+
+If `auth.ts` or `auth-client.ts` already exist, the CLI will detect them and skip creation.
+
+## See Also
+
+- [generate Command](/api/cli/generate) - Generate database schema
+- [migrate Command](/api/cli/migrate) - Run migrations
+- [secret Command](/api/cli/secret) - Generate secrets
+- [Installation Guide](/installation) - Getting started
+- [Configuration](/api/server/configuration) - Configuration options

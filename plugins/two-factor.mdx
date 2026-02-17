@@ -1,0 +1,671 @@
+---
+title: Two-Factor Authentication
+description: Add an extra layer of security with TOTP, Email OTP, and backup codes
+---
+
+## Overview
+
+Two-factor authentication (2FA) adds an extra security layer by requiring a second verification step after password authentication. Better Auth supports multiple 2FA methods including TOTP (Time-based One-Time Password), Email OTP, and backup codes for account recovery.
+
+## Features
+
+- **TOTP Support** - Works with authenticator apps (Google Authenticator, Authy, 1Password, etc.)
+- **Email OTP** - Send one-time passwords via email
+- **Backup Codes** - Generate recovery codes with encryption or hashing
+- **Trusted Devices** - Allow users to trust devices for a configurable period
+- **QR Code Generation** - Easy setup with authenticator apps
+- **Flexible Verification** - Skip verification during setup if needed
+- **Rate Limited** - Built-in protection against brute-force attacks
+
+## Use Cases
+
+- Protecting sensitive user accounts with additional security
+- Meeting compliance requirements for authentication
+- Providing passwordless 2FA via email OTP
+- Supporting multiple authentication factors
+- Enabling secure account recovery with backup codes
+
+## Installation
+
+The Two-Factor plugin is included in Better Auth:
+
+```bash
+npm install better-auth
+```
+
+## Configuration
+
+### Plugin Options
+
+<ParamField path="issuer" type="string" optional>
+  Application name displayed in authenticator apps (e.g., "MyApp").
+</ParamField>
+
+<ParamField path="totpOptions" type="TOTPOptions" optional>
+  Configuration for TOTP-based authentication.
+  
+  <Expandable title="TOTPOptions">
+    <ParamField path="digits" type="6 | 8" default={6}>
+      Number of digits in the OTP code.
+    </ParamField>
+    
+    <ParamField path="period" type="number" default={30}>
+      Time period in seconds for OTP validity.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="otpOptions" type="OTPOptions" optional>
+  Configuration for email OTP verification.
+  
+  <Expandable title="OTPOptions">
+    <ParamField path="sendOTP" type="function" required>
+      Function to send OTP via email. Receives `{ user, otp }` and request context.
+    </ParamField>
+    
+    <ParamField path="expiresIn" type="number" default={300}>
+      OTP expiration time in seconds.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="backupCodeOptions" type="BackupCodeOptions" optional>
+  Configuration for backup codes.
+  
+  <Expandable title="BackupCodeOptions">
+    <ParamField path="length" type="number" default={10}>
+      Length of each backup code.
+    </ParamField>
+    
+    <ParamField path="amount" type="number" default={10}>
+      Number of backup codes to generate.
+    </ParamField>
+    
+    <ParamField path="storeBackupCodes" type="'encrypted' | 'hashed'" default="encrypted">
+      How to store backup codes in the database.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="skipVerificationOnEnable" type="boolean" default={false}>
+  Skip TOTP verification when enabling 2FA.
+</ParamField>
+
+<ParamField path="twoFactorCookieMaxAge" type="number" default={600}>
+  Maximum age in seconds for the 2FA verification cookie (how long users have to complete 2FA flow).
+</ParamField>
+
+<ParamField path="trustDeviceMaxAge" type="number" default={2592000}>
+  Maximum age in seconds for trusted device cookie (default: 30 days).
+</ParamField>
+
+<ParamField path="schema" type="InferOptionSchema" optional>
+  Custom schema configuration for the two-factor table.
+</ParamField>
+
+## Setup
+
+<Steps>
+
+<Step title="Configure the plugin">
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth"
+import { twoFactor } from "better-auth/plugins"
+
+export const auth = betterAuth({
+  database: {
+    // your database configuration
+  },
+  plugins: [
+    twoFactor({
+      issuer: "MyApp",
+      totpOptions: {
+        period: 30,
+        digits: 6,
+      },
+      otpOptions: {
+        sendOTP: async ({ user, otp }, request) => {
+          // Send OTP via email
+          await sendEmail({
+            to: user.email,
+            subject: "Your verification code",
+            html: `Your 2FA code is: ${otp}`,
+          })
+        },
+        expiresIn: 300, // 5 minutes
+      },
+      backupCodeOptions: {
+        length: 10,
+        amount: 10,
+        storeBackupCodes: "encrypted",
+      },
+      trustDeviceMaxAge: 60 * 60 * 24 * 30, // 30 days
+    }),
+  ],
+})
+```
+
+</Step>
+
+<Step title="Run database migrations">
+
+Generate and apply the two-factor table schema:
+
+```bash
+npx better-auth migrate
+```
+
+This creates a `twoFactor` table with columns:
+- `id` - Primary key
+- `userId` - Foreign key to user table
+- `secret` - Encrypted TOTP secret
+- `backupCodes` - Encrypted backup codes
+
+</Step>
+
+<Step title="Set up client plugin">
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/react"
+import { twoFactorClient } from "better-auth/client/plugins"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [
+    twoFactorClient({
+      onTwoFactorRedirect: async () => {
+        // Redirect to 2FA verification page when required
+        window.location.href = "/verify-2fa"
+      },
+    }),
+  ],
+})
+```
+
+</Step>
+
+</Steps>
+
+## Client Usage
+
+### Enable Two-Factor
+
+<Tabs items={["React", "Vue", "Svelte", "Vanilla"]}>
+
+<Tab value="React">
+
+```tsx title="components/EnableTwoFactor.tsx"
+import { authClient } from "@/lib/auth-client"
+import { useState } from "react"
+import QRCode from "qrcode"
+
+export function EnableTwoFactor() {
+  const [password, setPassword] = useState("")
+  const [qrCode, setQrCode] = useState<string | null>(null)
+  const [backupCodes, setBackupCodes] = useState<string[]>([])
+
+  const handleEnable = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    const result = await authClient.twoFactor.enable({
+      password,
+      issuer: "MyApp", // Optional: override default issuer
+    })
+    
+    if (result.data) {
+      // Generate QR code from TOTP URI
+      const qr = await QRCode.toDataURL(result.data.totpURI)
+      setQrCode(qr)
+      setBackupCodes(result.data.backupCodes)
+    }
+  }
+
+  return (
+    <div>
+      {qrCode ? (
+        <div>
+          <h2>Scan with Authenticator App</h2>
+          <img src={qrCode} alt="2FA QR Code" />
+          
+          <h3>Backup Codes</h3>
+          <p>Save these codes securely:</p>
+          <ul>
+            {backupCodes.map((code) => (
+              <li key={code}>{code}</li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <form onSubmit={handleEnable}>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Enter your password"
+            required
+          />
+          <button type="submit">Enable 2FA</button>
+        </form>
+      )}
+    </div>
+  )
+}
+```
+
+</Tab>
+
+<Tab value="Vue">
+
+```vue title="components/EnableTwoFactor.vue"
+<script setup lang="ts">
+import { ref } from 'vue'
+import { authClient } from '@/lib/auth-client'
+import QRCode from 'qrcode'
+
+const password = ref('')
+const qrCode = ref<string | null>(null)
+const backupCodes = ref<string[]>([])
+
+const handleEnable = async () => {
+  const result = await authClient.twoFactor.enable({
+    password: password.value,
+  })
+  
+  if (result.data) {
+    qrCode.value = await QRCode.toDataURL(result.data.totpURI)
+    backupCodes.value = result.data.backupCodes
+  }
+}
+</script>
+
+<template>
+  <div>
+    <div v-if="qrCode">
+      <h2>Scan with Authenticator App</h2>
+      <img :src="qrCode" alt="2FA QR Code" />
+      
+      <h3>Backup Codes</h3>
+      <ul>
+        <li v-for="code in backupCodes" :key="code">{{ code }}</li>
+      </ul>
+    </div>
+    
+    <form v-else @submit.prevent="handleEnable">
+      <input v-model="password" type="password" placeholder="Password" required />
+      <button type="submit">Enable 2FA</button>
+    </form>
+  </div>
+</template>
+```
+
+</Tab>
+
+<Tab value="Svelte">
+
+```svelte title="components/EnableTwoFactor.svelte"
+<script lang="ts">
+  import { authClient } from '$lib/auth-client'
+  import QRCode from 'qrcode'
+
+  let password = ''
+  let qrCode: string | null = null
+  let backupCodes: string[] = []
+
+  async function handleEnable() {
+    const result = await authClient.twoFactor.enable({ password })
+    
+    if (result.data) {
+      qrCode = await QRCode.toDataURL(result.data.totpURI)
+      backupCodes = result.data.backupCodes
+    }
+  }
+</script>
+
+{#if qrCode}
+  <div>
+    <h2>Scan with Authenticator App</h2>
+    <img src={qrCode} alt="2FA QR Code" />
+    
+    <h3>Backup Codes</h3>
+    <ul>
+      {#each backupCodes as code}
+        <li>{code}</li>
+      {/each}
+    </ul>
+  </div>
+{:else}
+  <form on:submit|preventDefault={handleEnable}>
+    <input bind:value={password} type="password" placeholder="Password" required />
+    <button type="submit">Enable 2FA</button>
+  </form>
+{/if}
+```
+
+</Tab>
+
+<Tab value="Vanilla">
+
+```ts title="enable-2fa.ts"
+import { authClient } from './lib/auth-client'
+import QRCode from 'qrcode'
+
+const form = document.querySelector('#enable-2fa-form') as HTMLFormElement
+const container = document.querySelector('#qr-container')
+
+form?.addEventListener('submit', async (e) => {
+  e.preventDefault()
+  
+  const formData = new FormData(form)
+  const password = formData.get('password') as string
+  
+  const result = await authClient.twoFactor.enable({ password })
+  
+  if (result.data && container) {
+    const qr = await QRCode.toDataURL(result.data.totpURI)
+    container.innerHTML = `
+      <h2>Scan with Authenticator App</h2>
+      <img src="${qr}" alt="2FA QR Code" />
+      <h3>Backup Codes</h3>
+      <ul>
+        ${result.data.backupCodes.map(code => `<li>${code}</li>`).join('')}
+      </ul>
+    `
+  }
+})
+```
+
+</Tab>
+
+</Tabs>
+
+### Verify TOTP
+
+```tsx title="components/VerifyTOTP.tsx"
+import { authClient } from "@/lib/auth-client"
+import { useState } from "react"
+
+export function VerifyTOTP() {
+  const [code, setCode] = useState("")
+  const [trustDevice, setTrustDevice] = useState(false)
+
+  const handleVerify = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    const result = await authClient.twoFactor.verifyTotp({
+      code,
+      trustDevice, // Trust device for 30 days
+    })
+    
+    if (result.data?.status) {
+      // Successfully verified
+      window.location.href = "/dashboard"
+    }
+  }
+
+  return (
+    <form onSubmit={handleVerify}>
+      <input
+        type="text"
+        value={code}
+        onChange={(e) => setCode(e.target.value)}
+        placeholder="Enter 6-digit code"
+        maxLength={6}
+        required
+      />
+      
+      <label>
+        <input
+          type="checkbox"
+          checked={trustDevice}
+          onChange={(e) => setTrustDevice(e.target.checked)}
+        />
+        Trust this device for 30 days
+      </label>
+      
+      <button type="submit">Verify</button>
+    </form>
+  )
+}
+```
+
+### Verify with Backup Code
+
+```tsx
+const result = await authClient.twoFactor.verifyBackupCode({
+  code: "ABCDEF1234",
+})
+```
+
+### Disable Two-Factor
+
+```tsx
+const result = await authClient.twoFactor.disable({
+  password: "user-password",
+})
+```
+
+## Server Usage
+
+### Enable Two-Factor
+
+```ts title="app/api/2fa/enable/route.ts"
+import { auth } from "@/lib/auth"
+import { cookies } from "next/headers"
+
+export async function POST(request: Request) {
+  const session = await auth.api.getSession({ headers: await cookies() })
+  
+  if (!session) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const { password } = await request.json()
+  
+  const result = await auth.api.enableTwoFactor({
+    body: { password },
+    headers: await cookies(),
+  })
+  
+  return Response.json(result)
+}
+```
+
+### Verify TOTP
+
+```ts title="app/api/2fa/verify/route.ts"
+import { auth } from "@/lib/auth"
+import { cookies } from "next/headers"
+
+export async function POST(request: Request) {
+  const { code, trustDevice } = await request.json()
+  
+  const result = await auth.api.verifyTOTP({
+    body: { code, trustDevice },
+    headers: await cookies(),
+  })
+  
+  return Response.json(result)
+}
+```
+
+## API Reference
+
+### Client Methods
+
+<ResponseField name="twoFactor.enable" type="function">
+  Enable two-factor authentication for the current user.
+  
+  **Parameters:**
+  - `password` (string, required) - User's current password
+  - `issuer` (string, optional) - Custom issuer name for TOTP URI
+  
+  **Returns:**
+  - `totpURI` (string) - URI for QR code generation
+  - `backupCodes` (string[]) - Array of backup codes
+</ResponseField>
+
+<ResponseField name="twoFactor.disable" type="function">
+  Disable two-factor authentication for the current user.
+  
+  **Parameters:**
+  - `password` (string, required) - User's current password
+  
+  **Returns:**
+  - `status` (boolean) - Success status
+</ResponseField>
+
+<ResponseField name="twoFactor.verifyTotp" type="function">
+  Verify a TOTP code during the 2FA flow.
+  
+  **Parameters:**
+  - `code` (string, required) - 6 or 8-digit TOTP code
+  - `trustDevice` (boolean, optional) - Trust device for 30 days
+  
+  **Returns:**
+  - `status` (boolean) - Verification success status
+</ResponseField>
+
+<ResponseField name="twoFactor.verifyOtp" type="function">
+  Verify an email OTP code.
+  
+  **Parameters:**
+  - `code` (string, required) - OTP code from email
+  
+  **Returns:**
+  - `status` (boolean) - Verification success status
+</ResponseField>
+
+<ResponseField name="twoFactor.verifyBackupCode" type="function">
+  Verify a backup code for account recovery.
+  
+  **Parameters:**
+  - `code` (string, required) - Backup code
+  
+  **Returns:**
+  - `status` (boolean) - Verification success status
+</ResponseField>
+
+<ResponseField name="twoFactor.sendOtp" type="function">
+  Send an OTP code via email.
+  
+  **Returns:**
+  - `status` (boolean) - Send status
+</ResponseField>
+
+<ResponseField name="twoFactor.getTotpUri" type="function">
+  Get the TOTP URI for an already-enabled 2FA account.
+  
+  **Parameters:**
+  - `password` (string, required) - User's current password
+  
+  **Returns:**
+  - `totpURI` (string) - URI for QR code generation
+</ResponseField>
+
+<ResponseField name="twoFactor.generateBackupCodes" type="function">
+  Generate new backup codes (invalidates old ones).
+  
+  **Parameters:**
+  - `password` (string, required) - User's current password
+  
+  **Returns:**
+  - `backupCodes` (string[]) - Array of new backup codes
+</ResponseField>
+
+### Server Endpoints
+
+- `POST /two-factor/enable` - Enable 2FA (see index.ts:89-199)
+- `POST /two-factor/disable` - Disable 2FA (see index.ts:215-310)
+- `POST /two-factor/verify-totp` - Verify TOTP code (see totp/index.ts:197-290)
+- `POST /two-factor/verify-otp` - Verify email OTP
+- `POST /two-factor/verify-backup-code` - Verify backup code
+- `POST /two-factor/send-otp` - Send email OTP
+- `POST /two-factor/get-totp-uri` - Get TOTP URI (see totp/index.ts:128-195)
+- `POST /two-factor/generate-backup-codes` - Generate new backup codes
+
+## Security Features
+
+### Encrypted Storage
+
+TOTP secrets are encrypted using symmetric encryption before storage (see index.ts:140-144):
+
+```ts
+const secret = generateRandomString(32)
+const encryptedSecret = await symmetricEncrypt({
+  key: ctx.context.secret,
+  data: secret,
+})
+```
+
+### Backup Code Protection
+
+Backup codes can be stored encrypted or hashed:
+
+```ts
+backupCodeOptions: {
+  storeBackupCodes: "encrypted", // or "hashed"
+  length: 10,
+  amount: 10,
+}
+```
+
+### Rate Limiting
+
+All 2FA endpoints are rate-limited (see index.ts:436-444):
+
+```ts
+rateLimit: [
+  {
+    pathMatcher(path) {
+      return path.startsWith("/two-factor/")
+    },
+    window: 10,  // 10 seconds
+    max: 3,      // 3 attempts
+  },
+]
+```
+
+### Trusted Devices
+
+When a device is trusted:
+1. HMAC token is generated and stored in cookie (see index.ts:346-356)
+2. Server-side verification record is created (see index.ts:378-384)
+3. Token is rotated on each sign-in (see index.ts:370-396)
+4. Expires after configured period (default: 30 days)
+
+## Two-Factor Flow
+
+The complete 2FA authentication flow:
+
+1. User signs in with email/password
+2. If 2FA is enabled, session is deleted and 2FA cookie is set (see index.ts:407-427)
+3. User is redirected to verification page
+4. Check for trusted device cookie (see index.ts:339-402)
+5. If trusted device is valid, skip 2FA verification
+6. Otherwise, require TOTP/OTP/backup code verification
+7. On successful verification, create session (see totp/index.ts:275-286)
+8. Optionally trust device for future sign-ins
+
+## Database Schema
+
+The `twoFactor` table structure:
+
+```ts
+interface TwoFactorTable {
+  id: string
+  userId: string          // Foreign key to user
+  secret: string          // Encrypted TOTP secret
+  backupCodes: string     // Encrypted or hashed backup codes
+  enabled: boolean        // Whether 2FA is active
+}
+```
+
+User table is extended with:
+
+```ts
+interface User {
+  twoFactorEnabled: boolean
+  // ... other fields
+}
+```

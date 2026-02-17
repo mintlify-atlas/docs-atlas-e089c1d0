@@ -1,0 +1,378 @@
+---
+title: Database Hooks
+---
+
+Better Auth provides database hooks that allow you to intercept and modify database operations. These hooks are useful for adding custom logic before or after database operations like creating, updating, or deleting records.
+
+## Overview
+
+Database hooks are configured through the `databaseHooks` option in your Better Auth configuration. Hooks can be applied to any of the core models: `user`, `session`, `account`, and `verification`.
+
+## Configuration
+
+```ts
+import { betterAuth } from "better-auth";
+
+export const auth = betterAuth({
+  database: {
+    dialect: "postgres",
+    url: process.env.DATABASE_URL,
+  },
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (user) => {
+          // Modify user data before creation
+          return {
+            data: {
+              ...user,
+              emailVerified: false,
+            },
+          };
+        },
+        after: async (user) => {
+          // Perform actions after user creation
+          console.log("User created:", user.id);
+          await sendWelcomeEmail(user.email);
+        },
+      },
+    },
+  },
+});
+```
+
+## Hook Types
+
+Each model supports three types of operations, each with `before` and `after` hooks:
+
+- `create` - When a new record is created
+- `update` - When a record is updated
+- `delete` - When a record is deleted
+
+## Models
+
+### user
+
+Hooks for user operations.
+
+```ts
+databaseHooks: {
+  user: {
+    create: {
+      before: async (user, request) => {
+        // Called before user creation
+        return { data: user }; // Return modified user
+      },
+      after: async (user, request) => {
+        // Called after user creation
+      },
+    },
+    update: {
+      before: async (user, request) => {
+        // Called before user update
+      },
+      after: async (user, request) => {
+        // Called after user update
+      },
+    },
+    delete: {
+      before: async (user, request) => {
+        // Called before user deletion
+      },
+      after: async (user, request) => {
+        // Called after user deletion
+      },
+    },
+  },
+}
+```
+
+### session
+
+Hooks for session operations.
+
+```ts
+databaseHooks: {
+  session: {
+    create: {
+      before: async (session, request) => {
+        console.log("Creating session for user:", session.userId);
+      },
+      after: async (session, request) => {
+        console.log("Session created:", session.id);
+      },
+    },
+    update: {
+      after: async (session, request) => {
+        console.log("Session updated:", session.id);
+      },
+    },
+    delete: {
+      before: async (session, request) => {
+        console.log("Deleting session:", session.id);
+      },
+    },
+  },
+}
+```
+
+### account
+
+Hooks for account (OAuth provider) operations.
+
+```ts
+databaseHooks: {
+  account: {
+    create: {
+      before: async (account, request) => {
+        console.log("Linking account:", account.provider);
+      },
+      after: async (account, request) => {
+        console.log("Account linked:", account.id);
+      },
+    },
+    delete: {
+      before: async (account, request) => {
+        console.log("Unlinking account:", account.provider);
+      },
+    },
+  },
+}
+```
+
+### verification
+
+Hooks for email verification token operations.
+
+```ts
+databaseHooks: {
+  verification: {
+    create: {
+      after: async (verification, request) => {
+        console.log("Verification token created");
+      },
+    },
+    delete: {
+      after: async (verification, request) => {
+        console.log("Verification token used");
+      },
+    },
+  },
+}
+```
+
+## Before Hooks
+
+Before hooks are called before the database operation. They can:
+
+1. **Modify data** - Return `{ data: modifiedData }` to change what gets saved
+2. **Cancel operation** - Return `false` to prevent the operation
+3. **Do nothing** - Return nothing or `undefined` to proceed normally
+
+### Modifying Data
+
+```ts
+create: {
+  before: async (user) => {
+    return {
+      data: {
+        ...user,
+        emailVerified: false,
+        createdAt: new Date(),
+      },
+    };
+  },
+}
+```
+
+### Canceling Operations
+
+```ts
+delete: {
+  before: async (user) => {
+    if (user.role === "admin") {
+      console.log("Cannot delete admin user");
+      return false; // Cancel deletion
+    }
+  },
+}
+```
+
+## After Hooks
+
+After hooks are called after the database operation completes successfully. They receive the created/updated/deleted record and can be used for:
+
+- Sending notifications
+- Logging
+- Triggering other side effects
+- Syncing with external services
+
+```ts
+create: {
+  after: async (user) => {
+    // Send welcome email
+    await sendEmail({
+      to: user.email,
+      subject: "Welcome!",
+      body: "Thanks for signing up!",
+    });
+    
+    // Log to analytics
+    await analytics.track("user_created", {
+      userId: user.id,
+      email: user.email,
+    });
+  },
+}
+```
+
+## Request Context
+
+Both before and after hooks receive the request context as a second parameter:
+
+```ts
+create: {
+  before: async (user, request) => {
+    const ip = request?.headers?.get("x-forwarded-for");
+    console.log("User signing up from IP:", ip);
+  },
+}
+```
+
+## Examples
+
+### Email Verification on Signup
+
+```ts
+databaseHooks: {
+  user: {
+    create: {
+      before: async (user) => {
+        return {
+          data: {
+            ...user,
+            emailVerified: false,
+          },
+        };
+      },
+      after: async (user) => {
+        await sendVerificationEmail(user.email);
+      },
+    },
+  },
+}
+```
+
+### Audit Logging
+
+```ts
+databaseHooks: {
+  user: {
+    update: {
+      after: async (user, request) => {
+        await db.insert(auditLog).values({
+          userId: user.id,
+          action: "user_updated",
+          timestamp: new Date(),
+          ip: request?.headers?.get("x-forwarded-for"),
+        });
+      },
+    },
+    delete: {
+      before: async (user) => {
+        await db.insert(auditLog).values({
+          userId: user.id,
+          action: "user_deleted",
+          timestamp: new Date(),
+        });
+      },
+    },
+  },
+}
+```
+
+### Prevent Admin Deletion
+
+```ts
+databaseHooks: {
+  user: {
+    delete: {
+      before: async (user) => {
+        if (user.role === "admin") {
+          throw new Error("Cannot delete admin user");
+        }
+      },
+    },
+  },
+}
+```
+
+### Sync with External Service
+
+```ts
+databaseHooks: {
+  user: {
+    create: {
+      after: async (user) => {
+        // Sync to CRM
+        await crm.createContact({
+          email: user.email,
+          name: user.name,
+          source: "app_signup",
+        });
+      },
+    },
+    update: {
+      after: async (user) => {
+        // Update CRM
+        await crm.updateContact(user.id, {
+          email: user.email,
+          name: user.name,
+        });
+      },
+    },
+  },
+}
+```
+
+### Default Values
+
+```ts
+databaseHooks: {
+  user: {
+    create: {
+      before: async (user) => {
+        return {
+          data: {
+            ...user,
+            role: user.role || "user",
+            createdAt: new Date(),
+            metadata: user.metadata || {},
+          },
+        };
+      },
+    },
+  },
+}
+```
+
+## Plugin Hooks
+
+Plugins can also define their own hooks for custom models. See individual plugin documentation for details:
+
+- [Organization Plugin](/plugins/organization) - Hooks for organizations and members
+- [Admin Plugin](/plugins/admin) - Hooks for admin operations
+
+## Best Practices
+
+1. **Keep hooks fast** - Avoid long-running operations that block database writes
+2. **Use after hooks for side effects** - Don't modify core data in after hooks
+3. **Handle errors gracefully** - Wrap async operations in try-catch
+4. **Be careful with infinite loops** - Don't trigger operations that call the same hook
+5. **Use before hooks for validation** - Validate and modify data before it's saved
+
+## See Also
+
+- [Configuration](/api/server/configuration) - All configuration options
+- [Endpoints](/api/server/endpoints) - Server API methods
+- [Custom Fields](/guides/custom-fields) - Adding custom fields

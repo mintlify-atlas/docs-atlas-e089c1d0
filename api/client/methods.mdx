@@ -1,0 +1,506 @@
+---
+title: Client Methods
+---
+
+The Better Auth client provides methods for all authentication operations. All methods return promises and are fully typed based on your server configuration.
+
+## Authentication
+
+### signIn.email()
+
+Sign in with email and password.
+
+```ts
+const { data, error } = await authClient.signIn.email({
+  email: "user@example.com",
+  password: "password123",
+});
+
+if (error) {
+  console.error(error.message);
+} else {
+  console.log("Signed in:", data.user);
+}
+```
+
+<ParamField path="email" type="string" required>
+  User's email address.
+</ParamField>
+
+<ParamField path="password" type="string" required>
+  User's password.
+</ParamField>
+
+<ParamField path="callbackURL" type="string">
+  URL to redirect to after successful sign in.
+</ParamField>
+
+<ResponseField name="data" type="{ user, session }">
+  User and session data on success.
+</ResponseField>
+
+<ResponseField name="error" type="BetterFetchError | null">
+  Error object if the request failed.
+</ResponseField>
+
+### signIn.social()
+
+Sign in with a social provider.
+
+```ts
+await authClient.signIn.social({
+  provider: "github",
+  callbackURL: "/dashboard",
+});
+```
+
+<ParamField path="provider" type="string" required>
+  Social provider ID (e.g., "github", "google", "discord").
+</ParamField>
+
+<ParamField path="callbackURL" type="string">
+  URL to redirect to after successful authentication.
+</ParamField>
+
+### signUp.email()
+
+Create a new account with email and password.
+
+```ts
+const { data, error } = await authClient.signUp.email({
+  email: "user@example.com",
+  password: "password123",
+  name: "John Doe",
+});
+```
+
+<ParamField path="email" type="string" required>
+  User's email address.
+</ParamField>
+
+<ParamField path="password" type="string" required>
+  User's password.
+</ParamField>
+
+<ParamField path="name" type="string">
+  User's display name.
+</ParamField>
+
+<ParamField path="callbackURL" type="string">
+  URL to redirect to after successful sign up.
+</ParamField>
+
+<ResponseField name="data" type="{ user, session }">
+  User and session data on success.
+</ResponseField>
+
+### signOut()
+
+Sign out the current user.
+
+```ts
+await authClient.signOut({
+  fetchOptions: {
+    onSuccess: () => {
+      window.location.href = "/";
+    },
+  },
+});
+```
+
+<ParamField path="fetchOptions" type="FetchOptions">
+  Additional fetch options for the request.
+</ParamField>
+
+## Session Management
+
+### getSession()
+
+Get the current session. This is typically used with the `useSession` hook instead.
+
+```ts
+const { data, error } = await authClient.getSession();
+
+if (data) {
+  console.log("Current user:", data.user);
+}
+```
+
+<ResponseField name="data" type="{ user, session } | null">
+  Current session data, or null if not authenticated.
+</ResponseField>
+
+### listSessions()
+
+List all active sessions for the current user.
+
+```ts
+const { data } = await authClient.listSessions();
+
+console.log("Active sessions:", data);
+```
+
+<ResponseField name="data" type="Session[]">
+  Array of active session objects.
+</ResponseField>
+
+### revokeSession()
+
+Revoke a specific session.
+
+```ts
+await authClient.revokeSession({
+  sessionId: "session_id",
+});
+```
+
+<ParamField path="sessionId" type="string" required>
+  ID of the session to revoke.
+</ParamField>
+
+### revokeOtherSessions()
+
+Revoke all sessions except the current one.
+
+```ts
+await authClient.revokeOtherSessions();
+```
+
+### revokeSessions()
+
+Revoke all sessions for the current user.
+
+```ts
+await authClient.revokeSessions();
+```
+
+## User Management
+
+### updateUser()
+
+Update the current user's information.
+
+```ts
+const { data, error } = await authClient.updateUser({
+  name: "New Name",
+  image: "https://example.com/avatar.jpg",
+});
+```
+
+<ParamField path="name" type="string">
+  User's display name.
+</ParamField>
+
+<ParamField path="image" type="string">
+  URL to user's avatar image.
+</ParamField>
+
+<ResponseField name="data" type="User">
+  Updated user object.
+</ResponseField>
+
+### deleteUser()
+
+Delete the current user's account.
+
+```ts
+await authClient.deleteUser({
+  fetchOptions: {
+    onSuccess: () => {
+      window.location.href = "/";
+    },
+  },
+});
+```
+
+## Password Management
+
+### changePassword()
+
+Change the current user's password.
+
+```ts
+const { error } = await authClient.changePassword({
+  currentPassword: "oldpassword",
+  newPassword: "newpassword",
+});
+
+if (error) {
+  console.error("Failed to change password:", error.message);
+}
+```
+
+<ParamField path="currentPassword" type="string" required>
+  Current password for verification.
+</ParamField>
+
+<ParamField path="newPassword" type="string" required>
+  New password to set.
+</ParamField>
+
+### setPassword()
+
+Set a password for accounts without one (e.g., OAuth-only accounts).
+
+```ts
+await authClient.setPassword({
+  password: "newpassword",
+});
+```
+
+<ParamField path="password" type="string" required>
+  Password to set.
+</ParamField>
+
+### forgetPassword()
+
+Request a password reset email.
+
+```ts
+await authClient.forgetPassword({
+  email: "user@example.com",
+  redirectTo: "/reset-password",
+});
+```
+
+<ParamField path="email" type="string" required>
+  Email address of the account.
+</ParamField>
+
+<ParamField path="redirectTo" type="string">
+  URL to redirect to after clicking the reset link.
+</ParamField>
+
+### resetPassword()
+
+Reset password using a token from the reset email.
+
+```ts
+await authClient.resetPassword({
+  token: "reset_token",
+  password: "newpassword",
+});
+```
+
+<ParamField path="token" type="string" required>
+  Password reset token from the email.
+</ParamField>
+
+<ParamField path="password" type="string" required>
+  New password to set.
+</ParamField>
+
+## Email Management
+
+### changeEmail()
+
+Change the user's email address.
+
+```ts
+await authClient.changeEmail({
+  newEmail: "newemail@example.com",
+});
+```
+
+<ParamField path="newEmail" type="string" required>
+  New email address.
+</ParamField>
+
+### verifyEmail()
+
+Verify email using a verification token.
+
+```ts
+await authClient.verifyEmail({
+  token: "verification_token",
+});
+```
+
+<ParamField path="token" type="string" required>
+  Email verification token from the verification email.
+</ParamField>
+
+### sendVerificationEmail()
+
+Send a verification email to the current user.
+
+```ts
+await authClient.sendVerificationEmail({
+  email: "user@example.com",
+});
+```
+
+<ParamField path="email" type="string" required>
+  Email address to send the verification email to.
+</ParamField>
+
+## Account Management
+
+### linkSocial()
+
+Link a social account to the current user.
+
+```ts
+await authClient.linkSocial({
+  provider: "github",
+  callbackURL: "/settings",
+});
+```
+
+<ParamField path="provider" type="string" required>
+  Social provider ID.
+</ParamField>
+
+<ParamField path="callbackURL" type="string">
+  URL to redirect to after linking.
+</ParamField>
+
+### listAccounts()
+
+List all linked accounts for the current user.
+
+```ts
+const { data } = await authClient.listAccounts();
+
+console.log("Linked accounts:", data);
+```
+
+<ResponseField name="data" type="Account[]">
+  Array of linked account objects.
+</ResponseField>
+
+## Error Handling
+
+All methods return an object with `data` and `error` properties:
+
+```ts
+const { data, error } = await authClient.signIn.email({
+  email: "user@example.com",
+  password: "wrong",
+});
+
+if (error) {
+  // Handle specific error codes
+  if (error.status === 401) {
+    console.error("Invalid credentials");
+  }
+  
+  // Access error message
+  console.error(error.message);
+  
+  // Access error code (if available)
+  console.error(error.code);
+}
+```
+
+## Fetch Options
+
+All methods accept a `fetchOptions` parameter for customizing requests:
+
+```ts
+await authClient.signIn.email(
+  {
+    email: "user@example.com",
+    password: "password",
+  },
+  {
+    onRequest: (ctx) => {
+      console.log("Signing in...");
+    },
+    onSuccess: (ctx) => {
+      console.log("Signed in successfully!");
+      window.location.href = "/dashboard";
+    },
+    onError: (ctx) => {
+      console.error("Sign in failed:", ctx.error.message);
+    },
+  }
+);
+```
+
+## Usage Examples
+
+### Sign In Form
+
+```tsx
+import { authClient } from "@/lib/auth-client";
+import { useState } from "react";
+
+export function SignInForm() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const { error } = await authClient.signIn.email({
+      email,
+      password,
+    });
+    
+    if (error) {
+      setError(error.message);
+    } else {
+      window.location.href = "/dashboard";
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        placeholder="Email"
+      />
+      <input
+        type="password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        placeholder="Password"
+      />
+      {error && <p>{error}</p>}
+      <button type="submit">Sign In</button>
+    </form>
+  );
+}
+```
+
+### Social Sign In
+
+```tsx
+import { authClient } from "@/lib/auth-client";
+
+export function SocialSignIn() {
+  return (
+    <div>
+      <button
+        onClick={() => authClient.signIn.social({
+          provider: "github",
+          callbackURL: "/dashboard",
+        })}
+      >
+        Sign in with GitHub
+      </button>
+      
+      <button
+        onClick={() => authClient.signIn.social({
+          provider: "google",
+          callbackURL: "/dashboard",
+        })}
+      >
+        Sign in with Google
+      </button>
+    </div>
+  );
+}
+```
+
+## See Also
+
+- [Client Initialization](/api/client/initialization) - Setup and configuration
+- [Client Hooks](/api/client/hooks) - React/Vue/Svelte hooks
+- [Client Types](/api/client/types) - TypeScript types
+- [Authentication Guide](/authentication/email-password) - Email/password auth
+- [Social Providers](/authentication/social-providers) - OAuth providers

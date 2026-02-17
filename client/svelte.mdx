@@ -1,0 +1,452 @@
+---
+title: Svelte Client
+description: Use Better Auth with Svelte and SvelteKit.
+---
+
+The Svelte client provides stores and actions optimized for Svelte applications. It integrates seamlessly with Svelte's reactive stores system.
+
+## Installation
+
+```package-install
+better-auth
+```
+
+## Create a Client
+
+Create a client instance by importing `createAuthClient` from `better-auth/svelte`:
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/svelte";
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000", // the base url of your auth server
+});
+```
+
+<Callout type="info">
+  Make sure to import from `better-auth/svelte`, not `better-auth/client`. The Svelte client includes Svelte-specific stores.
+</Callout>
+
+## Configuration
+
+The Svelte client accepts the same configuration options as the vanilla client:
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/svelte";
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  fetchOptions: {
+    credentials: "include",
+    onError(context) {
+      console.error(context.error);
+    },
+  },
+  plugins: [],
+});
+```
+
+## Usage
+
+### useSession Store
+
+The `useSession` function returns a Svelte store with the current session:
+
+```svelte title="routes/profile/+page.svelte"
+<script lang="ts">
+  import { authClient } from "$lib/auth-client";
+
+  const session = authClient.useSession();
+</script>
+
+{#if $session.isPending}
+  <div>Loading...</div>
+{:else if $session.error}
+  <div>Error: {$session.error.message}</div>
+{:else if !$session.data}
+  <div>Not authenticated</div>
+{:else}
+  <div>
+    <h1>Welcome, {$session.data.user.name}!</h1>
+    <p>Email: {$session.data.user.email}</p>
+    <button on:click={() => authClient.signOut()}>
+      Sign Out
+    </button>
+  </div>
+{/if}
+```
+
+<Callout type="info">
+  The `useSession` function returns a [nanostores](https://github.com/nanostores/nanostores) atom, which is compatible with Svelte's `$` store syntax.
+</Callout>
+
+### Authentication Methods
+
+All authentication methods work seamlessly with Svelte:
+
+```svelte title="routes/login/+page.svelte"
+<script lang="ts">
+  import { authClient } from "$lib/auth-client";
+  import { goto } from "$app/navigation";
+
+  let email = "";
+  let password = "";
+  let loading = false;
+  let error: string | null = null;
+
+  async function handleSubmit(e: Event) {
+    e.preventDefault();
+    loading = true;
+    error = null;
+
+    try {
+      await authClient.signIn.email(
+        {
+          email,
+          password,
+          rememberMe: true,
+        },
+        {
+          onSuccess: () => {
+            goto("/dashboard");
+          },
+          onError: (ctx) => {
+            error = ctx.error.message;
+          },
+        }
+      );
+    } finally {
+      loading = false;
+    }
+  }
+</script>
+
+<form on:submit={handleSubmit}>
+  {#if error}
+    <div class="error">{error}</div>
+  {/if}
+
+  <input
+    type="email"
+    bind:value={email}
+    placeholder="Email"
+    required
+  />
+
+  <input
+    type="password"
+    bind:value={password}
+    placeholder="Password"
+    required
+  />
+
+  <button type="submit" disabled={loading}>
+    {loading ? "Signing in..." : "Sign In"}
+  </button>
+</form>
+```
+
+### Sign Up
+
+```svelte title="routes/signup/+page.svelte"
+<script lang="ts">
+  import { authClient } from "$lib/auth-client";
+  import { goto } from "$app/navigation";
+
+  let formData = {
+    email: "",
+    password: "",
+    name: "",
+  };
+  let loading = false;
+
+  async function handleSubmit(e: Event) {
+    e.preventDefault();
+    loading = true;
+
+    await authClient.signUp.email(formData, {
+      onSuccess: () => {
+        goto("/dashboard");
+      },
+      onError: (ctx) => {
+        alert(ctx.error.message);
+      },
+    });
+
+    loading = false;
+  }
+</script>
+
+<form on:submit={handleSubmit}>
+  <input bind:value={formData.name} placeholder="Name" required />
+  <input bind:value={formData.email} type="email" placeholder="Email" required />
+  <input bind:value={formData.password} type="password" placeholder="Password" required />
+  <button type="submit" disabled={loading}>Sign Up</button>
+</form>
+```
+
+### Refetching Session
+
+Manually refetch the session:
+
+```svelte title="components/RefreshButton.svelte"
+<script lang="ts">
+  import { authClient } from "$lib/auth-client";
+
+  const session = authClient.useSession();
+</script>
+
+<button
+  on:click={() => $session.refetch()}
+  disabled={$session.isRefetching}
+>
+  {$session.isRefetching ? "Refreshing..." : "Refresh Session"}
+</button>
+```
+
+## Protected Routes
+
+Create a layout for protected routes:
+
+```svelte title="routes/(protected)/+layout.svelte"
+<script lang="ts">
+  import { authClient } from "$lib/auth-client";
+  import { goto } from "$app/navigation";
+  import { onMount } from "svelte";
+
+  const session = authClient.useSession();
+
+  onMount(() => {
+    if (!$session.data && !$session.isPending) {
+      goto("/login");
+    }
+  });
+
+  $: if (!$session.data && !$session.isPending) {
+    goto("/login");
+  }
+</script>
+
+{#if $session.isPending}
+  <div>Loading...</div>
+{:else if $session.data}
+  <slot />
+{/if}
+```
+
+Or use load functions:
+
+```ts title="routes/(protected)/+layout.server.ts"
+import { redirect } from "@sveltejs/kit";
+import type { LayoutServerLoad } from "./$types";
+import { auth } from "$lib/auth";
+
+export const load: LayoutServerLoad = async ({ request }) => {
+  const session = await auth.api.getSession({
+    headers: request.headers,
+  });
+
+  if (!session) {
+    throw redirect(303, "/login");
+  }
+
+  return { session };
+};
+```
+
+## SvelteKit Integration
+
+For SvelteKit, you can use load functions to fetch session data:
+
+```ts title="routes/+layout.server.ts"
+import type { LayoutServerLoad } from "./$types";
+import { auth } from "$lib/auth";
+
+export const load: LayoutServerLoad = async ({ request }) => {
+  const session = await auth.api.getSession({
+    headers: request.headers,
+  });
+
+  return { session };
+};
+```
+
+Then use it in your layout:
+
+```svelte title="routes/+layout.svelte"
+<script lang="ts">
+  import { authClient } from "$lib/auth-client";
+  import type { LayoutData } from "./$types";
+
+  export let data: LayoutData;
+
+  const session = authClient.useSession();
+
+  // Initialize session with server data
+  $: if (data.session && $session.data === null) {
+    // Session is automatically synced
+  }
+</script>
+
+<slot />
+```
+
+For more details, see the [SvelteKit integration guide](/docs/integrations/svelte-kit).
+
+## With Plugins
+
+Extend the client with plugins:
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/svelte";
+import { organizationClient } from "better-auth/client/plugins";
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [
+    organizationClient(),
+  ],
+});
+```
+
+Use plugin methods:
+
+```svelte
+<script lang="ts">
+  import { authClient } from "$lib/auth-client";
+
+  async function createOrg() {
+    await authClient.organization.create({
+      name: "My Organization",
+    });
+  }
+</script>
+
+<button on:click={createOrg}>Create Organization</button>
+```
+
+## TypeScript Support
+
+The Svelte client provides full TypeScript support:
+
+```ts
+import { authClient } from "$lib/auth-client";
+import type { Atom } from "nanostores";
+
+// Infer session type
+type Session = typeof authClient.$Infer.Session;
+
+// The session store is a nanostores atom
+const session: Atom<{
+  data: Session | null;
+  isPending: boolean;
+  error: Error | null;
+}> = authClient.useSession();
+```
+
+## Reactive Statements
+
+Use Svelte's reactive statements with the session store:
+
+```svelte
+<script lang="ts">
+  import { authClient } from "$lib/auth-client";
+
+  const session = authClient.useSession();
+
+  $: isAdmin = $session.data?.user.role === "admin";
+  $: greeting = $session.data?.user.name
+    ? `Hello, ${$session.data.user.name}!`
+    : "Hello, Guest!";
+</script>
+
+<h1>{greeting}</h1>
+
+{#if isAdmin}
+  <div>Admin panel access</div>
+{/if}
+```
+
+## Derived Stores
+
+Create derived stores from the session:
+
+```ts title="lib/stores.ts"
+import { derived } from "svelte/store";
+import { authClient } from "./auth-client";
+
+const session = authClient.useSession();
+
+export const isAuthenticated = derived(
+  session,
+  ($session) => !!$session.data
+);
+
+export const currentUser = derived(
+  session,
+  ($session) => $session.data?.user
+);
+
+export const isAdmin = derived(
+  currentUser,
+  ($user) => $user?.role === "admin"
+);
+```
+
+Use in components:
+
+```svelte
+<script lang="ts">
+  import { isAuthenticated, currentUser, isAdmin } from "$lib/stores";
+</script>
+
+{#if $isAuthenticated}
+  <p>Welcome, {$currentUser?.name}</p>
+  
+  {#if $isAdmin}
+    <a href="/admin">Admin Panel</a>
+  {/if}
+{/if}
+```
+
+## Actions (Svelte Actions)
+
+Create Svelte actions for auth-protected elements:
+
+```ts title="lib/actions.ts"
+import { authClient } from "./auth-client";
+
+export function requireAuth(node: HTMLElement) {
+  const session = authClient.useSession();
+
+  const unsubscribe = session.subscribe((value) => {
+    if (!value.data && !value.isPending) {
+      node.style.display = "none";
+    } else {
+      node.style.display = "";
+    }
+  });
+
+  return {
+    destroy() {
+      unsubscribe();
+    },
+  };
+}
+```
+
+Use in templates:
+
+```svelte
+<script lang="ts">
+  import { requireAuth } from "$lib/actions";
+</script>
+
+<div use:requireAuth>
+  This content is only visible to authenticated users
+</div>
+```
+
+## API Reference
+
+For a complete list of available methods, stores, and their types, see the [Client API Reference](/docs/api/client/methods).

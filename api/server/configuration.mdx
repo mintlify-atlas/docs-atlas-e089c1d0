@@ -1,0 +1,358 @@
+---
+title: Configuration
+---
+
+Better Auth is configured through the options object passed to `betterAuth()`. This reference documents all available configuration options.
+
+## Database
+
+<ParamField path="database" type="Database | DBAdapter" required>
+  Database configuration. Can be a Kysely dialect configuration or a database adapter.
+  
+  **Built-in Kysely (Full Mode)**:
+  ```ts
+  database: {
+    dialect: "postgres", // "mysql" | "sqlite" | "mssql"
+    url: process.env.DATABASE_URL,
+  }
+  ```
+  
+  **Using Adapter (Minimal Mode)**:
+  ```ts
+  database: drizzleAdapter(db, { provider: "pg" })
+  ```
+</ParamField>
+
+<ParamField path="databaseHooks" type="DatabaseHooks">
+  Lifecycle hooks for database operations. See [Hooks](/api/server/hooks) for details.
+  
+  ```ts
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (user) => {
+          console.log("Creating user:", user.email);
+        },
+        after: async (user) => {
+          console.log("User created:", user.id);
+        },
+      },
+    },
+  }
+  ```
+</ParamField>
+
+## Core Options
+
+<ParamField path="appName" type="string">
+  The name of your application. Used in emails and other user-facing messages.
+  
+  ```ts
+  appName: "My App"
+  ```
+</ParamField>
+
+<ParamField path="baseURL" type="string">
+  The base URL of your application (e.g., `https://example.com`). Required for OAuth redirects and email links.
+  
+  ```ts
+  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000"
+  ```
+</ParamField>
+
+<ParamField path="basePath" type="string" default="/api/auth">
+  The base path for authentication routes.
+  
+  ```ts
+  basePath: "/auth"
+  ```
+</ParamField>
+
+<ParamField path="secret" type="string">
+  Secret key for signing tokens and sessions. Should be a random string at least 32 characters long.
+  
+  ```ts
+  secret: process.env.BETTER_AUTH_SECRET
+  ```
+  
+  Generate a secret with:
+  ```bash
+  npx @better-auth/cli secret
+  ```
+</ParamField>
+
+## Authentication Methods
+
+<ParamField path="emailAndPassword" type="EmailAndPasswordOptions">
+  Enable and configure email/password authentication.
+  
+  ```ts
+  emailAndPassword: {
+    enabled: true,
+    requireEmailVerification: true,
+    minPasswordLength: 8,
+    maxPasswordLength: 128,
+  }
+  ```
+</ParamField>
+
+<ParamField path="socialProviders" type="SocialProviders">
+  Configure social authentication providers.
+  
+  ```ts
+  socialProviders: {
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET,
+    },
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    },
+  }
+  ```
+  
+  See [OAuth Setup Guide](/guides/oauth-setup) for details.
+</ParamField>
+
+## Session Configuration
+
+<ParamField path="session" type="SessionOptions">
+  Configure session behavior.
+  
+  ```ts
+  session: {
+    expiresIn: 60 * 60 * 24 * 7, // 7 days in seconds
+    updateAge: 60 * 60 * 24, // 1 day in seconds
+    cookieCache: {
+      enabled: true,
+      maxAge: 5 * 60, // 5 minutes in seconds
+    },
+  }
+  ```
+</ParamField>
+
+<ParamField path="session.expiresIn" type="number" default="604800">
+  Session expiration time in seconds (default: 7 days).
+</ParamField>
+
+<ParamField path="session.updateAge" type="number" default="86400">
+  How often to update session expiration time in seconds (default: 1 day).
+</ParamField>
+
+<ParamField path="session.cookieCache" type="CookieCacheOptions">
+  Configure cookie-based session caching to reduce database calls.
+  
+  ```ts
+  session: {
+    cookieCache: {
+      enabled: true,
+      maxAge: 300, // 5 minutes
+    },
+  }
+  ```
+</ParamField>
+
+## Email Configuration
+
+<ParamField path="emailVerification" type="EmailVerificationOptions">
+  Configure email verification.
+  
+  ```ts
+  emailVerification: {
+    sendOnSignUp: true,
+    autoSignInAfterVerification: true,
+    sendVerificationEmail: async ({ user, url }) => {
+      await sendEmail({
+        to: user.email,
+        subject: "Verify your email",
+        html: `Click <a href="${url}">here</a> to verify`,
+      });
+    },
+  }
+  ```
+</ParamField>
+
+<ParamField path="emailAndPassword.sendResetPassword" type="function">
+  Function to send password reset emails.
+  
+  ```ts
+  emailAndPassword: {
+    sendResetPassword: async ({ user, url }) => {
+      await sendEmail({
+        to: user.email,
+        subject: "Reset your password",
+        html: `Click <a href="${url}">here</a> to reset`,
+      });
+    },
+  }
+  ```
+</ParamField>
+
+## Security & Rate Limiting
+
+<ParamField path="rateLimit" type="RateLimitOptions">
+  Configure rate limiting for authentication endpoints.
+  
+  ```ts
+  rateLimit: {
+    enabled: true,
+    window: 60, // 1 minute in seconds
+    max: 10, // max requests per window
+    storage: "memory", // or "database"
+  }
+  ```
+</ParamField>
+
+<ParamField path="trustedOrigins" type="string[]">
+  List of trusted origins for CORS and CSRF protection.
+  
+  ```ts
+  trustedOrigins: [
+    "https://example.com",
+    "https://app.example.com",
+  ]
+  ```
+</ParamField>
+
+## Advanced Options
+
+<ParamField path="advanced" type="AdvancedOptions">
+  Advanced configuration options.
+  
+  ```ts
+  advanced: {
+    useSecureCookies: true,
+    cookiePrefix: "better-auth",
+    crossSubDomainCookies: {
+      enabled: true,
+      domain: ".example.com",
+    },
+    generateId: () => customIdGenerator(),
+  }
+  ```
+</ParamField>
+
+<ParamField path="advanced.useSecureCookies" type="boolean" default="true in production">
+  Whether to use secure cookies (HTTPS only).
+</ParamField>
+
+<ParamField path="advanced.cookiePrefix" type="string" default="better-auth">
+  Prefix for cookie names.
+</ParamField>
+
+<ParamField path="advanced.generateId" type="() => string">
+  Custom ID generator for users, sessions, etc.
+  
+  ```ts
+  advanced: {
+    generateId: () => nanoid(),
+  }
+  ```
+</ParamField>
+
+## Plugins
+
+<ParamField path="plugins" type="BetterAuthPlugin[]">
+  Array of plugins to extend Better Auth functionality.
+  
+  ```ts
+  import { twoFactor, organization } from "better-auth/plugins";
+  
+  plugins: [
+    twoFactor({
+      issuer: "My App",
+    }),
+    organization(),
+  ]
+  ```
+  
+  See [Plugins Overview](/plugins/overview) for available plugins.
+</ParamField>
+
+## Logging
+
+<ParamField path="logger" type="LoggerOptions">
+  Configure logging behavior.
+  
+  ```ts
+  logger: {
+    level: "debug", // "info" | "warn" | "error" | "debug"
+    disabled: false,
+  }
+  ```
+</ParamField>
+
+## Error Handling
+
+<ParamField path="onAPIError" type="ErrorHandler">
+  Custom error handler for API errors.
+  
+  ```ts
+  onAPIError: {
+    onError: (error, ctx) => {
+      console.error("Auth error:", error);
+      // Send to error tracking service
+    },
+    throw: false, // Set to true to re-throw errors
+  }
+  ```
+</ParamField>
+
+## Example Configuration
+
+```ts title="lib/auth.ts"
+import { betterAuth } from "better-auth";
+import { twoFactor } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  appName: "My App",
+  baseURL: process.env.BETTER_AUTH_URL,
+  secret: process.env.BETTER_AUTH_SECRET,
+  
+  database: {
+    dialect: "postgres",
+    url: process.env.DATABASE_URL,
+  },
+  
+  emailAndPassword: {
+    enabled: true,
+    requireEmailVerification: true,
+    minPasswordLength: 8,
+    sendResetPassword: async ({ user, url }) => {
+      await sendEmail(user.email, "Reset Password", url);
+    },
+  },
+  
+  socialProviders: {
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET,
+    },
+  },
+  
+  session: {
+    expiresIn: 60 * 60 * 24 * 7, // 7 days
+    updateAge: 60 * 60 * 24, // 1 day
+  },
+  
+  rateLimit: {
+    enabled: true,
+    window: 60,
+    max: 10,
+  },
+  
+  plugins: [
+    twoFactor({
+      issuer: "My App",
+    }),
+  ],
+});
+```
+
+## See Also
+
+- [betterAuth()](/api/server/better-auth) - Initialize Better Auth
+- [Endpoints](/api/server/endpoints) - Available API endpoints
+- [Hooks](/api/server/hooks) - Database hooks
+- [Plugins](/plugins/overview) - Available plugins

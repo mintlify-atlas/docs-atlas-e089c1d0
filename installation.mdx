@@ -1,0 +1,312 @@
+---
+title: Installation
+description: Install Better Auth in your TypeScript project
+---
+
+## Prerequisites
+
+Before installing Better Auth, ensure you have:
+
+- Node.js 18+ or Bun
+- A TypeScript project with `strict` mode enabled
+- A database (PostgreSQL, MySQL, SQLite, MongoDB, or MSSQL)
+
+<Note>
+  Better Auth requires TypeScript with `strict: true` in your `tsconfig.json`. The CLI will help you enable this if needed.
+</Note>
+
+## Quick Install
+
+The fastest way to get started is using the Better Auth CLI:
+
+<CodeGroup>
+
+```bash npm
+npx @better-auth/cli@latest init
+```
+
+```bash pnpm
+pnpm dlx @better-auth/cli@latest init
+```
+
+```bash bun
+bunx @better-auth/cli@latest init
+```
+
+```bash yarn
+yarn dlx @better-auth/cli@latest init
+```
+
+</CodeGroup>
+
+The CLI will guide you through:
+
+1. Installing the `better-auth` package
+2. Configuring your database
+3. Setting up plugins
+4. Creating auth configuration files
+5. Setting environment variables
+
+## Manual Installation
+
+If you prefer to install manually:
+
+### Step 1: Install the Package
+
+<CodeGroup>
+
+```bash npm
+npm install better-auth
+```
+
+```bash pnpm
+pnpm add better-auth
+```
+
+```bash bun
+bun add better-auth
+```
+
+```bash yarn
+yarn add better-auth
+```
+
+</CodeGroup>
+
+### Step 2: Configure TypeScript
+
+Ensure your `tsconfig.json` has strict mode enabled:
+
+```json tsconfig.json
+{
+  "compilerOptions": {
+    "strict": true,
+    // ... other options
+  }
+}
+```
+
+### Step 3: Set Environment Variables
+
+Create a `.env` file in your project root:
+
+```bash .env
+BETTER_AUTH_SECRET=your-secret-key-here
+BETTER_AUTH_URL=http://localhost:3000
+DATABASE_URL=your-database-connection-string
+```
+
+<Note>
+  Generate a secure secret using the CLI command:
+  ```bash
+  npx @better-auth/cli@latest secret
+  ```
+</Note>
+
+### Step 4: Install Database Adapter
+
+Depending on your database choice, install the appropriate adapter:
+
+<Tabs>
+  <Tab title="Prisma">
+    ```bash
+    npm install @prisma/client prisma
+    ```
+
+    Better Auth works with Prisma's schema. You'll generate migrations using the Better Auth CLI later.
+  </Tab>
+  <Tab title="Drizzle">
+    ```bash
+    npm install drizzle-orm drizzle-kit
+    ```
+
+    Choose your database driver:
+    ```bash
+    # PostgreSQL
+    npm install pg
+    
+    # MySQL
+    npm install mysql2
+    
+    # SQLite
+    npm install better-sqlite3
+    ```
+  </Tab>
+  <Tab title="Kysely">
+    ```bash
+    npm install kysely
+    ```
+
+    Kysely is included with Better Auth by default. Install your database driver:
+    ```bash
+    # PostgreSQL
+    npm install pg
+    
+    # MySQL
+    npm install mysql2
+    
+    # SQLite
+    npm install better-sqlite3
+    ```
+  </Tab>
+  <Tab title="MongoDB">
+    ```bash
+    npm install mongodb
+    ```
+
+    MongoDB uses a document-based adapter.
+  </Tab>
+</Tabs>
+
+## Database Setup
+
+After installing your chosen adapter, generate the database schema:
+
+<CodeGroup>
+
+```bash Generate Schema
+npx @better-auth/cli@latest generate
+```
+
+```bash Run Migration
+npx @better-auth/cli@latest migrate
+```
+
+</CodeGroup>
+
+<Note>
+  The `generate` command creates migration files based on your Better Auth configuration, including any plugins you've added.
+</Note>
+
+## Framework-Specific Setup
+
+Depending on your framework, you may need additional configuration:
+
+<Tabs>
+  <Tab title="Next.js">
+    No additional packages required. Better Auth works with both App Router and Pages Router.
+
+    For optimal cookie handling in Next.js, consider installing the Next.js plugin:
+
+    ```bash
+    # Already included in better-auth
+    # Just import from better-auth/next-js
+    ```
+
+    See the [Next.js integration guide](/integrations/nextjs) for setup details.
+  </Tab>
+  <Tab title="SvelteKit">
+    No additional packages required. Better Auth integrates natively with SvelteKit.
+
+    See the [SvelteKit integration guide](/integrations/sveltekit) for setup details.
+  </Tab>
+  <Tab title="Solid Start">
+    No additional packages required. Better Auth supports Solid Start out of the box.
+
+    See the [Solid Start integration guide](/integrations/solid-start) for setup details.
+  </Tab>
+  <Tab title="TanStack Start">
+    No additional packages required. Better Auth works with TanStack Start.
+
+    See the [TanStack Start integration guide](/integrations/tanstack-start) for setup details.
+  </Tab>
+  <Tab title="Node.js / Express">
+    No additional packages required. Better Auth can be used as middleware.
+
+    See the [Node.js integration guide](/integrations/node) for setup details.
+  </Tab>
+</Tabs>
+
+## Verify Installation
+
+To verify your installation is correct:
+
+<CodeGroup>
+
+```bash Check Installation
+npx @better-auth/cli@latest info
+```
+
+</CodeGroup>
+
+This command displays:
+- Current Better Auth version
+- Installed plugins
+- Database configuration
+- Framework detection
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+    Build your first auth flow in 5 minutes
+  </Card>
+  <Card title="Core Concepts" icon="book" href="/concepts/architecture">
+    Learn how Better Auth works
+  </Card>
+  <Card title="Database Adapters" icon="database" href="/adapters/overview">
+    Configure your database adapter
+  </Card>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Explore all configuration options
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="TypeScript strict mode errors">
+    Better Auth requires `strict: true` in your `tsconfig.json`. Enable it:
+
+    ```json
+    {
+      "compilerOptions": {
+        "strict": true
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Database connection issues">
+    Ensure your `DATABASE_URL` is correctly formatted:
+
+    ```bash
+    # PostgreSQL
+    postgresql://user:password@localhost:5432/database
+    
+    # MySQL
+    mysql://user:password@localhost:3306/database
+    
+    # SQLite
+    file:./dev.db
+    ```
+  </Accordion>
+
+  <Accordion title="Module not found errors">
+    Make sure you've installed all peer dependencies for your chosen adapter:
+
+    ```bash
+    npm install better-auth @prisma/client
+    # or
+    npm install better-auth drizzle-orm pg
+    ```
+  </Accordion>
+
+  <Accordion title="BETTER_AUTH_SECRET missing">
+    Generate a secure secret:
+
+    ```bash
+    npx @better-auth/cli@latest secret
+    ```
+
+    Then add it to your `.env` file:
+
+    ```bash
+    BETTER_AUTH_SECRET=<generated-secret>
+    ```
+  </Accordion>
+</AccordionGroup>
+
+<Card title="Need Help?" icon="question-circle" href="/resources/troubleshooting">
+  Check our troubleshooting guide for common issues
+</Card>

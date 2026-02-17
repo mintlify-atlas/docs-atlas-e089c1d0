@@ -1,0 +1,664 @@
+---
+title: Stripe
+description: Integrate subscription billing and payments with Stripe
+---
+
+The Stripe plugin provides comprehensive subscription management, billing portal integration, and webhook handling for Better Auth. It enables user and organization-level subscriptions with automatic customer syncing.
+
+## Features
+
+- **Subscription Management**: Create and manage user or organization subscriptions with flexible plan configuration
+- **Automatic Customer Sync**: Automatically create and sync Stripe customers on user signup or organization creation
+- **Billing Portal**: Integrated Stripe billing portal for subscription management
+- **Webhook Handling**: Built-in webhook endpoints for subscription lifecycle events
+- **Free Trials**: Support for trial periods with lifecycle hooks
+- **Organization Support**: Multi-tenant subscriptions with organization-level billing
+- **Multiple Plans**: Support for monthly/annual pricing and plan groups
+
+## Installation
+
+The Stripe plugin is a separate package that needs to be installed:
+
+```package-install
+@better-auth/stripe stripe
+```
+
+## Configuration
+
+### Basic Setup
+
+Add the Stripe plugin to your Better Auth configuration:
+
+```ts title="lib/auth.ts"
+import { betterAuth } from "better-auth";
+import { stripe } from "@better-auth/stripe";
+import Stripe from "stripe";
+
+const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: "2024-11-20.acacia",
+});
+
+export const auth = betterAuth({
+  database: {
+    // your database configuration
+  },
+  plugins: [
+    stripe({
+      stripeClient,
+      stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET!,
+      createCustomerOnSignUp: true, // Auto-create Stripe customers
+    }),
+  ],
+});
+```
+
+### With Subscriptions
+
+Enable subscription features by configuring plans:
+
+```ts title="lib/auth.ts"
+import { stripe } from "@better-auth/stripe";
+import Stripe from "stripe";
+
+const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY!);
+
+export const auth = betterAuth({
+  plugins: [
+    stripe({
+      stripeClient,
+      stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET!,
+      createCustomerOnSignUp: true,
+      subscription: {
+        enabled: true,
+        plans: [
+          {
+            name: "pro",
+            priceId: "price_xxx", // Monthly price
+            annualDiscountPriceId: "price_yyy", // Optional annual price
+          },
+          {
+            name: "enterprise",
+            priceId: "price_zzz",
+            limits: { seats: 50, features: ["advanced-analytics"] },
+            freeTrial: {
+              days: 14,
+              onTrialStart: async (subscription) => {
+                console.log("Trial started:", subscription.id);
+              },
+              onTrialEnd: async ({ subscription }, ctx) => {
+                console.log("Trial ended:", subscription.id);
+              },
+            },
+          },
+        ],
+      },
+    }),
+  ],
+});
+```
+
+### With Organizations
+
+Enable organization-level subscriptions:
+
+```ts title="lib/auth.ts"
+import { stripe } from "@better-auth/stripe";
+import { organization } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    organization(),
+    stripe({
+      stripeClient,
+      stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET!,
+      organization: {
+        enabled: true,
+        getCustomerCreateParams: async (org, ctx) => {
+          return {
+            email: `billing@${org.slug}.company`,
+            metadata: { organizationId: org.id },
+          };
+        },
+        onCustomerCreate: async ({ stripeCustomer, organization }, ctx) => {
+          console.log(`Stripe customer created for org: ${organization.name}`);
+        },
+      },
+      subscription: {
+        enabled: true,
+        plans: [
+          {
+            name: "team",
+            priceId: "price_team",
+            group: "organization", // Group plans by type
+          },
+        ],
+      },
+    }),
+  ],
+});
+```
+
+## Usage
+
+### Client Setup
+
+Import the Stripe client plugin:
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/react";
+import { stripeClient } from "@better-auth/stripe/client";
+
+export const authClient = createAuthClient({
+  plugins: [stripeClient({ subscription: true })],
+});
+
+export const {
+  subscription,
+} = authClient;
+```
+
+### Upgrade Subscription
+
+Create a checkout session for a user to upgrade:
+
+```tsx title="components/upgrade-button.tsx"
+'use client';
+
+import { subscription } from "@/lib/auth-client";
+
+export function UpgradeButton() {
+  const handleUpgrade = async () => {
+    const result = await subscription.upgrade({
+      plan: "pro",
+      annual: false,
+      successUrl: "/success",
+      cancelUrl: "/pricing",
+    });
+
+    if (result.data?.url) {
+      window.location.href = result.data.url;
+    }
+  };
+
+  return <button onClick={handleUpgrade}>Upgrade to Pro</button>;
+}
+```
+
+### Organization Subscription
+
+Upgrade at the organization level:
+
+```tsx
+import { subscription } from "@/lib/auth-client";
+import { useActiveOrganization } from "better-auth/react";
+
+export function OrgUpgradeButton() {
+  const { data: org } = useActiveOrganization();
+
+  const handleUpgrade = async () => {
+    const result = await subscription.upgrade({
+      plan: "team",
+      customerType: "organization",
+      referenceId: org.id,
+      successUrl: "/org/success",
+      cancelUrl: "/org/pricing",
+    });
+
+    if (result.data?.url) {
+      window.location.href = result.data.url;
+    }
+  };
+
+  return <button onClick={handleUpgrade}>Upgrade Organization</button>;
+}
+```
+
+### List Active Subscriptions
+
+```tsx
+import { subscription } from "@/lib/auth-client";
+import { useEffect, useState } from "react";
+
+export function SubscriptionList() {
+  const [subs, setSubs] = useState([]);
+
+  useEffect(() => {
+    subscription.list().then((result) => {
+      if (result.data) setSubs(result.data);
+    });
+  }, []);
+
+  return (
+    <div>
+      {subs.map((sub) => (
+        <div key={sub.id}>
+          <p>Plan: {sub.plan}</p>
+          <p>Status: {sub.status}</p>
+          <p>Period: {new Date(sub.periodEnd).toLocaleDateString()}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+### Cancel Subscription
+
+```tsx
+import { subscription } from "@/lib/auth-client";
+
+export function CancelButton({ subscriptionId }) {
+  const handleCancel = async () => {
+    const result = await subscription.cancel({
+      subscriptionId,
+      returnUrl: "/account",
+    });
+
+    if (result.data?.url) {
+      window.location.href = result.data.url; // Redirect to billing portal
+    }
+  };
+
+  return <button onClick={handleCancel}>Cancel Subscription</button>;
+}
+```
+
+### Restore Subscription
+
+```tsx
+import { subscription } from "@/lib/auth-client";
+
+export function RestoreButton({ subscriptionId }) {
+  const handleRestore = async () => {
+    await subscription.restore({
+      subscriptionId,
+    });
+  };
+
+  return <button onClick={handleRestore}>Restore Subscription</button>;
+}
+```
+
+### Access Billing Portal
+
+```tsx
+import { subscription } from "@/lib/auth-client";
+
+export function BillingPortalButton() {
+  const handlePortal = async () => {
+    const result = await subscription.billingPortal({
+      returnUrl: "/account",
+    });
+
+    if (result.data?.url) {
+      window.location.href = result.data.url;
+    }
+  };
+
+  return <button onClick={handlePortal}>Manage Billing</button>;
+}
+```
+
+## Webhook Handling
+
+### Setup Webhook Endpoint
+
+The plugin automatically creates a webhook endpoint at `/api/auth/stripe/webhook`. Configure this in your Stripe dashboard:
+
+1. Go to Stripe Dashboard → Developers → Webhooks
+2. Add endpoint: `https://yourdomain.com/api/auth/stripe/webhook`
+3. Select events:
+   - `checkout.session.completed`
+   - `customer.subscription.created`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
+4. Copy the webhook secret to `STRIPE_WEBHOOK_SECRET`
+
+### Webhook Events
+
+The plugin handles these Stripe webhook events automatically:
+
+- **checkout.session.completed**: Updates subscription status after successful checkout
+- **customer.subscription.created**: Creates subscription record when created via dashboard
+- **customer.subscription.updated**: Syncs subscription changes (plan, status, cancellation)
+- **customer.subscription.deleted**: Marks subscription as canceled
+
+### Custom Event Handling
+
+Listen to subscription lifecycle events:
+
+```ts title="lib/auth.ts"
+stripe({
+  stripeClient,
+  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET!,
+  subscription: {
+    enabled: true,
+    plans: [...],
+    onSubscriptionComplete: async ({ subscription, plan, event }, ctx) => {
+      console.log(`User subscribed to ${plan.name}`);
+      // Send welcome email, enable features, etc.
+    },
+    onSubscriptionUpdate: async ({ subscription, event }) => {
+      console.log(`Subscription ${subscription.id} updated`);
+    },
+    onSubscriptionCancel: async ({ subscription, cancellationDetails }) => {
+      console.log(`Subscription canceled: ${cancellationDetails?.reason}`);
+      // Send feedback survey, offer discount, etc.
+    },
+    onSubscriptionDeleted: async ({ subscription, event }) => {
+      console.log(`Subscription ${subscription.id} deleted`);
+      // Disable features, archive data, etc.
+    },
+  },
+  onCustomerCreate: async ({ stripeCustomer, user }, ctx) => {
+    console.log(`Stripe customer created: ${stripeCustomer.id}`);
+  },
+  onEvent: async (event) => {
+    // Handle any Stripe event
+    console.log(`Stripe event: ${event.type}`);
+  },
+})
+```
+
+## API Reference
+
+### Configuration Options
+
+#### StripeOptions
+
+```ts
+interface StripeOptions {
+  stripeClient: Stripe;
+  stripeWebhookSecret: string;
+  createCustomerOnSignUp?: boolean;
+  onCustomerCreate?: (data: {
+    stripeCustomer: Stripe.Customer;
+    user: User;
+  }, ctx: GenericEndpointContext) => Promise<void>;
+  getCustomerCreateParams?: (user: User, ctx: GenericEndpointContext) => Promise<Partial<Stripe.CustomerCreateParams>>;
+  subscription?: SubscriptionOptions;
+  organization?: OrganizationOptions;
+  onEvent?: (event: Stripe.Event) => Promise<void>;
+}
+```
+
+#### SubscriptionOptions
+
+```ts
+interface SubscriptionOptions {
+  enabled: true;
+  plans: StripePlan[];
+  requireEmailVerification?: boolean;
+  onSubscriptionComplete?: (data: {
+    event: Stripe.Event;
+    stripeSubscription: Stripe.Subscription;
+    subscription: Subscription;
+    plan: StripePlan;
+  }, ctx: GenericEndpointContext) => Promise<void>;
+  onSubscriptionUpdate?: (data: {
+    event: Stripe.Event;
+    subscription: Subscription;
+  }) => Promise<void>;
+  onSubscriptionCancel?: (data: {
+    event?: Stripe.Event;
+    subscription: Subscription;
+    stripeSubscription: Stripe.Subscription;
+    cancellationDetails?: Stripe.Subscription.CancellationDetails;
+  }) => Promise<void>;
+  onSubscriptionDeleted?: (data: {
+    event: Stripe.Event;
+    stripeSubscription: Stripe.Subscription;
+    subscription: Subscription;
+  }) => Promise<void>;
+  authorizeReference?: (data: {
+    user: User;
+    session: Session;
+    referenceId: string;
+    action: string;
+  }, ctx: GenericEndpointContext) => Promise<boolean>;
+  getCheckoutSessionParams?: (data: {
+    user: User;
+    session: Session;
+    plan: StripePlan;
+    subscription: Subscription;
+  }, req: Request, ctx: GenericEndpointContext) => Promise<{
+    params?: Stripe.Checkout.SessionCreateParams;
+    options?: Stripe.RequestOptions;
+  }>;
+}
+```
+
+#### StripePlan
+
+```ts
+interface StripePlan {
+  name: string;
+  priceId?: string;
+  lookupKey?: string;
+  annualDiscountPriceId?: string;
+  annualDiscountLookupKey?: string;
+  limits?: Record<string, unknown>;
+  group?: string;
+  freeTrial?: {
+    days: number;
+    onTrialStart?: (subscription: Subscription) => Promise<void>;
+    onTrialEnd?: (data: { subscription: Subscription }, ctx: GenericEndpointContext) => Promise<void>;
+    onTrialExpired?: (subscription: Subscription, ctx: GenericEndpointContext) => Promise<void>;
+  };
+}
+```
+
+### Client Methods
+
+#### subscription.upgrade()
+
+```ts
+subscription.upgrade({
+  plan: string;
+  annual?: boolean;
+  referenceId?: string;
+  subscriptionId?: string;
+  customerType?: "user" | "organization";
+  metadata?: Record<string, string>;
+  seats?: number;
+  locale?: string;
+  successUrl: string;
+  cancelUrl: string;
+  returnUrl?: string;
+  disableRedirect?: boolean;
+})
+```
+
+#### subscription.cancel()
+
+```ts
+subscription.cancel({
+  referenceId?: string;
+  subscriptionId?: string;
+  customerType?: "user" | "organization";
+  returnUrl: string;
+  disableRedirect?: boolean;
+})
+```
+
+#### subscription.restore()
+
+```ts
+subscription.restore({
+  referenceId?: string;
+  subscriptionId?: string;
+  customerType?: "user" | "organization";
+})
+```
+
+#### subscription.list()
+
+```ts
+subscription.list({
+  referenceId?: string;
+  customerType?: "user" | "organization";
+})
+```
+
+#### subscription.billingPortal()
+
+```ts
+subscription.billingPortal({
+  referenceId?: string;
+  customerType?: "user" | "organization";
+  returnUrl: string;
+  locale?: string;
+  disableRedirect?: boolean;
+})
+```
+
+## Database Schema
+
+The plugin adds the following fields to your database:
+
+### User Table
+
+```sql
+ALTER TABLE user ADD COLUMN stripeCustomerId TEXT;
+```
+
+### Organization Table (if enabled)
+
+```sql
+ALTER TABLE organization ADD COLUMN stripeCustomerId TEXT;
+```
+
+### Subscription Table
+
+```sql
+CREATE TABLE subscription (
+  id TEXT PRIMARY KEY,
+  plan TEXT NOT NULL,
+  stripeCustomerId TEXT,
+  stripeSubscriptionId TEXT,
+  trialStart TIMESTAMP,
+  trialEnd TIMESTAMP,
+  priceId TEXT,
+  referenceId TEXT NOT NULL,
+  status TEXT NOT NULL,
+  periodStart TIMESTAMP,
+  periodEnd TIMESTAMP,
+  cancelAtPeriodEnd BOOLEAN,
+  cancelAt TIMESTAMP,
+  canceledAt TIMESTAMP,
+  endedAt TIMESTAMP,
+  groupId TEXT,
+  seats INTEGER,
+  createdAt TIMESTAMP NOT NULL,
+  updatedAt TIMESTAMP NOT NULL
+);
+```
+
+## Examples
+
+### Check User Subscription Status
+
+```ts title="lib/subscription.ts"
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
+
+export async function getUserSubscription() {
+  const session = await auth.api.getSession({ headers: await headers() });
+  
+  if (!session?.user) return null;
+
+  const subscriptions = await auth.api.listActiveSubscriptions({
+    body: { customerType: "user" },
+    headers: await headers(),
+  });
+
+  return subscriptions?.[0] || null;
+}
+```
+
+### Protect Routes by Subscription
+
+```ts title="middleware.ts"
+import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+
+export async function middleware(request: NextRequest) {
+  const session = await auth.api.getSession({
+    headers: request.headers,
+  });
+
+  if (!session?.user) {
+    return NextResponse.redirect(new URL("/signin", request.url));
+  }
+
+  // Check subscription for premium routes
+  if (request.nextUrl.pathname.startsWith("/premium")) {
+    const subscriptions = await auth.api.listActiveSubscriptions({
+      headers: request.headers,
+    });
+
+    const hasActiveSubscription = subscriptions?.some(
+      (sub) => sub.status === "active" && sub.plan === "pro"
+    );
+
+    if (!hasActiveSubscription) {
+      return NextResponse.redirect(new URL("/pricing", request.url));
+    }
+  }
+
+  return NextResponse.next();
+}
+```
+
+### Usage-Based Billing
+
+```ts
+import { stripe } from "@better-auth/stripe";
+
+export const auth = betterAuth({
+  plugins: [
+    stripe({
+      stripeClient,
+      stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET!,
+      subscription: {
+        enabled: true,
+        plans: [
+          {
+            name: "usage",
+            priceId: "price_metered", // Metered pricing in Stripe
+          },
+        ],
+        getCheckoutSessionParams: async ({ user, plan }) => {
+          return {
+            params: {
+              payment_method_collection: "if_required",
+            },
+          };
+        },
+      },
+    }),
+  ],
+});
+
+// Report usage to Stripe
+export async function reportUsage(userId: string, quantity: number) {
+  const subscriptions = await auth.api.listActiveSubscriptions({
+    body: { referenceId: userId },
+  });
+
+  const subscription = subscriptions?.[0];
+  if (!subscription?.stripeSubscriptionId) return;
+
+  const stripeSubscription = await stripeClient.subscriptions.retrieve(
+    subscription.stripeSubscriptionId
+  );
+
+  const subscriptionItem = stripeSubscription.items.data[0];
+
+  await stripeClient.subscriptionItems.createUsageRecord(
+    subscriptionItem.id,
+    { quantity, timestamp: Math.floor(Date.now() / 1000) }
+  );
+}
+```

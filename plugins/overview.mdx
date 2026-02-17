@@ -1,0 +1,418 @@
+---
+title: 'Plugin System Overview'
+description: 'Learn about Better Auth plugin ecosystem and how to extend functionality'
+icon: 'puzzle-piece'
+---
+
+## Introduction
+
+Better Auth features a powerful plugin system that allows you to extend authentication functionality with minimal configuration. Plugins can add new endpoints, database schemas, hooks, middleware, and client-side methods.
+
+<Note>
+Plugins are the recommended way to extend Better Auth functionality. They provide a consistent API and integrate seamlessly with the core framework.
+</Note>
+
+## Available Plugins
+
+Better Auth includes a rich ecosystem of official plugins:
+
+<CardGroup cols={2}>
+  <Card title="Organization" icon="building" href="/plugins/organization">
+    Multi-tenant organizations with teams, roles, and permissions
+  </Card>
+  <Card title="Two-Factor Auth" icon="shield" href="/plugins/two-factor">
+    TOTP, OTP, and backup codes for enhanced security
+  </Card>
+  <Card title="Magic Link" icon="wand-magic-sparkles" href="/plugins/magic-link">
+    Passwordless authentication via email links
+  </Card>
+  <Card title="Anonymous Auth" icon="user-secret" href="/plugins/anonymous">
+    Allow users to access your app without registration
+  </Card>
+  <Card title="Phone Number" icon="phone" href="/plugins/phone-number">
+    SMS-based authentication and verification
+  </Card>
+  <Card title="Username" icon="at" href="/plugins/username">
+    Username-based authentication instead of email
+  </Card>
+  <Card title="Multi-Session" icon="window-restore" href="/plugins/multi-session">
+    Allow users to have multiple active sessions
+  </Card>
+  <Card title="JWT" icon="key" href="/plugins/jwt">
+    JSON Web Token support with rotation
+  </Card>
+</CardGroup>
+
+## Plugin Architecture
+
+Plugins in Better Auth follow a consistent structure defined by the `BetterAuthPlugin` interface:
+
+```typescript
+interface BetterAuthPlugin {
+  id: string;
+  init?: (ctx: AuthContext) => Awaitable<void>;
+  endpoints?: Record<string, Endpoint>;
+  hooks?: {
+    before?: HookHandler[];
+    after?: HookHandler[];
+  };
+  schema?: BetterAuthPluginDBSchema;
+  middlewares?: { path: string; middleware: Middleware }[];
+  rateLimit?: RateLimitRule[];
+  options?: Record<string, any>;
+  $Infer?: Record<string, any>;
+  $ERROR_CODES?: Record<string, string>;
+}
+```
+
+### Core Plugin Capabilities
+
+<Steps>
+  <Step title="Endpoints">
+    Add new API routes for authentication flows. Plugins can create both server and client-side methods.
+  </Step>
+  
+  <Step title="Database Schema">
+    Define additional tables and fields needed by your plugin. The framework handles migrations automatically.
+  </Step>
+  
+  <Step title="Hooks">
+    Intercept and modify requests before or after they reach core endpoints.
+  </Step>
+  
+  <Step title="Middleware">
+    Apply custom logic to specific routes or patterns.
+  </Step>
+  
+  <Step title="Rate Limiting">
+    Configure request limits for plugin endpoints to prevent abuse.
+  </Step>
+</Steps>
+
+## Using Plugins
+
+Plugins are configured when initializing Better Auth:
+
+### Server Configuration
+
+```typescript server.ts
+import { betterAuth } from "better-auth";
+import { magicLink, twoFactor, organization } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  database: {
+    // your database config
+  },
+  plugins: [
+    magicLink({
+      sendMagicLink: async ({ email, url }) => {
+        // Send email with magic link
+        await sendEmail(email, url);
+      },
+    }),
+    twoFactor({
+      issuer: "My App",
+      totpOptions: {
+        period: 30,
+        digits: 6,
+      },
+    }),
+    organization(),
+  ],
+});
+```
+
+### Client Configuration
+
+Most plugins also require client-side setup:
+
+```typescript client.ts
+import { createAuthClient } from "better-auth/client";
+import { 
+  magicLinkClient, 
+  twoFactorClient,
+  organizationClient 
+} from "better-auth/client/plugins";
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [
+    magicLinkClient(),
+    twoFactorClient(),
+    organizationClient(),
+  ],
+});
+```
+
+## Plugin Examples
+
+### Magic Link Plugin
+
+The magic link plugin demonstrates a complete authentication flow:
+
+```typescript
+import { magicLink } from "better-auth/plugins";
+
+const auth = betterAuth({
+  plugins: [
+    magicLink({
+      // How long the link is valid (in seconds)
+      expiresIn: 300, // 5 minutes
+      
+      // Send the magic link email
+      sendMagicLink: async ({ email, url, token }, ctx) => {
+        await sendEmail({
+          to: email,
+          subject: "Sign in to My App",
+          html: `<a href="${url}">Click here to sign in</a>`,
+        });
+      },
+      
+      // Prevent new user registration
+      disableSignUp: false,
+      
+      // Rate limiting
+      rateLimit: {
+        window: 60, // 1 minute
+        max: 5,     // 5 attempts
+      },
+    }),
+  ],
+});
+```
+
+### Two-Factor Authentication Plugin
+
+The two-factor plugin adds multiple 2FA methods:
+
+```typescript
+import { twoFactor } from "better-auth/plugins";
+
+const auth = betterAuth({
+  plugins: [
+    twoFactor({
+      // TOTP settings
+      issuer: "My Application",
+      totpOptions: {
+        period: 30,
+        digits: 6,
+      },
+      
+      // OTP delivery via email/SMS
+      otpOptions: {
+        async sendOTP(user, otp) {
+          await sendSMS(user.phoneNumber, `Your code: ${otp}`);
+        },
+        length: 6,
+        expiresIn: 300,
+      },
+      
+      // Backup codes
+      backupCodeOptions: {
+        amount: 10,
+        length: 10,
+      },
+      
+      // Trust device for 30 days
+      trustDeviceMaxAge: 30 * 24 * 60 * 60,
+    }),
+  ],
+});
+```
+
+### Anonymous Authentication Plugin
+
+Allow users to start using your app without registration:
+
+```typescript
+import { anonymous } from "better-auth/plugins";
+
+const auth = betterAuth({
+  plugins: [
+    anonymous({
+      // Custom email domain for anonymous users
+      emailDomainName: "anon.myapp.com",
+      
+      // Generate custom names
+      async generateName(ctx) {
+        return `Guest_${Math.random().toString(36).slice(2, 8)}`;
+      },
+      
+      // Handle account linking
+      async onLinkAccount({ anonymousUser, newUser, ctx }) {
+        // Transfer data from anonymous to registered user
+        await transferUserData(anonymousUser.user.id, newUser.user.id);
+      },
+      
+      // Prevent deletion of anonymous users
+      disableDeleteAnonymousUser: false,
+    }),
+  ],
+});
+```
+
+## Plugin Type Safety
+
+Plugins extend Better Auth with full TypeScript support:
+
+```typescript
+import type { BetterAuthPlugin } from "better-auth";
+
+// Plugin types are automatically inferred
+type Auth = typeof auth;
+type Inferred = Auth["$Infer"];
+
+// Organization plugin types
+type Organization = Inferred["Organization"];
+type Member = Inferred["Member"];
+type Invitation = Inferred["Invitation"];
+
+// Use inferred types in your application
+const org: Organization = {
+  id: "org_123",
+  name: "Acme Corp",
+  slug: "acme",
+  createdAt: new Date(),
+};
+```
+
+## Error Handling
+
+Plugins can define custom error codes:
+
+```typescript
+// Plugin exports error codes
+import { TWO_FACTOR_ERROR_CODES } from "better-auth/plugins/two-factor";
+
+try {
+  await authClient.twoFactor.enable({ password: "123456" });
+} catch (error) {
+  if (error.code === TWO_FACTOR_ERROR_CODES.INVALID_PASSWORD) {
+    console.error("Password is incorrect");
+  }
+}
+```
+
+## Database Migrations
+
+Plugins automatically manage database schemas:
+
+<CodeGroup>
+```bash CLI
+# Generate migrations for all plugins
+npx better-auth migrate
+
+# Generate migration for specific database
+npx better-auth migrate --adapter postgres
+```
+
+```typescript Programmatic
+import { auth } from "./auth";
+
+// Run migrations programmatically
+await auth.api.migrate();
+```
+</CodeGroup>
+
+<Note>
+Plugin schemas are merged with core schemas automatically. You don't need to manually define plugin tables.
+</Note>
+
+## Rate Limiting
+
+Plugins can define rate limits for their endpoints:
+
+```typescript
+const plugin: BetterAuthPlugin = {
+  id: "my-plugin",
+  rateLimit: [
+    {
+      // Match paths
+      pathMatcher: (path) => path.startsWith("/my-plugin/"),
+      
+      // 10 requests per minute
+      window: 60,
+      max: 10,
+    },
+  ],
+};
+```
+
+## Hooks System
+
+Plugins can hook into the request lifecycle:
+
+```typescript
+const plugin: BetterAuthPlugin = {
+  id: "audit-log",
+  hooks: {
+    // Run before endpoint handler
+    before: [
+      {
+        matcher: (ctx) => ctx.path === "/sign-in/email",
+        handler: async (ctx) => {
+          console.log("Sign-in attempt:", ctx.body.email);
+        },
+      },
+    ],
+    
+    // Run after endpoint handler
+    after: [
+      {
+        matcher: (ctx) => ctx.path?.startsWith("/sign-in"),
+        handler: async (ctx) => {
+          const session = ctx.context.newSession;
+          if (session) {
+            await logAuditEvent({
+              userId: session.user.id,
+              action: "sign_in",
+              timestamp: new Date(),
+            });
+          }
+        },
+      },
+    ],
+  },
+};
+```
+
+## Plugin Initialization
+
+The `init` function runs when Better Auth starts:
+
+```typescript
+const plugin: BetterAuthPlugin = {
+  id: "analytics",
+  init: async (ctx) => {
+    // Initialize analytics service
+    await analyticsService.init({
+      apiKey: ctx.options.analyticsKey,
+      environment: ctx.options.environment,
+    });
+    
+    // Modify context if needed
+    return {
+      context: {
+        analytics: analyticsService,
+      },
+    };
+  },
+};
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Create Custom Plugins" icon="wrench" href="/plugins/custom-plugins">
+    Learn how to build your own plugins
+  </Card>
+  <Card title="Organization Plugin" icon="building" href="/plugins/organization">
+    Explore the organization plugin in detail
+  </Card>
+  <Card title="Plugin API Reference" icon="book" href="/api-reference/plugins">
+    Complete plugin API documentation
+  </Card>
+  <Card title="Examples" icon="code" href="/examples/plugins">
+    Browse plugin implementation examples
+  </Card>
+</CardGroup>

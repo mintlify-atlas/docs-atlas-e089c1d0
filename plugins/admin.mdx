@@ -1,0 +1,615 @@
+---
+title: Admin Plugin
+description: User management, role-based access control, and impersonation for administrators
+---
+
+The admin plugin provides powerful administrative capabilities including user management, role-based access control (RBAC), user impersonation, and ban management.
+
+## Features
+
+- **User management** - Create, update, list, and delete users
+- **Role-based access control** - Assign roles with custom permissions
+- **User banning** - Ban/unban users with optional expiration
+- **User impersonation** - Securely impersonate users for support
+- **Session management** - View and revoke user sessions
+- **Password management** - Set user passwords administratively
+- **Permission checks** - Verify admin permissions at runtime
+
+## Installation
+
+<CodeGroup>
+
+```bash npm
+npm install better-auth
+```
+
+```bash pnpm
+pnpm add better-auth
+```
+
+```bash bun
+bun add better-auth
+```
+
+</CodeGroup>
+
+## Configuration
+
+### Basic Setup
+
+<Steps>
+
+<Step title="Add Plugin to Server">
+
+```typescript auth.ts
+import { betterAuth } from "better-auth";
+import { admin } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  database: {
+    // your database config
+  },
+  plugins: [
+    admin({
+      defaultRole: "user",
+      adminRoles: ["admin"],
+    }),
+  ],
+});
+```
+
+</Step>
+
+<Step title="Add Client Plugin">
+
+```typescript auth-client.ts
+import { createAuthClient } from "better-auth/client";
+import { adminClient } from "better-auth/plugins/admin/client";
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [
+    adminClient(),
+  ],
+});
+```
+
+</Step>
+
+<Step title="Run Migrations">
+
+```bash
+npx @better-auth/cli migrate
+```
+
+This adds admin fields to existing tables:
+- `user.role` - User's role
+- `user.banned` - Ban status
+- `user.banReason` - Reason for ban
+- `user.banExpires` - Ban expiration date
+- `session.impersonatedBy` - ID of admin impersonating
+
+</Step>
+
+</Steps>
+
+### Plugin Options
+
+<ParamField path="defaultRole" type="string" default="user">
+  Default role assigned to new users.
+</ParamField>
+
+<ParamField path="adminRoles" type="string | string[]" default="['admin']">
+  Roles considered as admin roles. Users with these roles can access admin endpoints.
+  
+  ```typescript
+  adminRoles: ["admin", "super-admin", "moderator"]
+  ```
+</ParamField>
+
+<ParamField path="adminUserIds" type="string[]">
+  List of user IDs that should have admin access regardless of role. When set, `adminRoles` is ignored.
+  
+  ```typescript
+  adminUserIds: ["user_123", "user_456"]
+  ```
+</ParamField>
+
+<ParamField path="defaultBanReason" type="string">
+  Default reason shown when banning users.
+</ParamField>
+
+<ParamField path="defaultBanExpiresIn" type="number">
+  Default ban duration in seconds.
+</ParamField>
+
+<ParamField path="bannedUserMessage" type="string" default="You have been banned...">
+  Message shown to banned users attempting to sign in.
+</ParamField>
+
+<ParamField path="impersonationSessionDuration" type="number" default="3600">
+  Duration of impersonation sessions in seconds (default: 1 hour).
+</ParamField>
+
+<ParamField path="allowImpersonatingAdmins" type="boolean" default="false">
+  Allow impersonating other admin users.
+</ParamField>
+
+<ParamField path="roles" type="object">
+  Custom role definitions with permissions. See [Roles & Permissions](#roles--permissions).
+</ParamField>
+
+<ParamField path="ac" type="AccessControl">
+  Access control configuration. See [Roles & Permissions](#roles--permissions).
+</ParamField>
+
+## Usage
+
+### User Management
+
+**Create User:**
+
+```typescript
+const user = await authClient.admin.createUser({
+  email: "user@example.com",
+  password: "secure-password",
+  name: "John Doe",
+  role: "user",
+  data: {
+    // Additional fields
+    department: "Engineering",
+  },
+});
+```
+
+**List Users:**
+
+```typescript
+const users = await authClient.admin.listUsers({
+  limit: 50,
+  offset: 0,
+  sortBy: "createdAt",
+  sortDirection: "desc",
+  filterBy: {
+    role: "user",
+    // Custom filters
+  },
+});
+```
+
+**Get User:**
+
+```typescript
+const user = await authClient.admin.getUser({
+  userId: "user_123",
+});
+```
+
+**Update User:**
+
+```typescript
+const updated = await authClient.admin.updateUser({
+  userId: "user_123",
+  data: {
+    name: "Jane Doe",
+    email: "jane@example.com",
+  },
+});
+```
+
+**Delete User:**
+
+```typescript
+await authClient.admin.removeUser({
+  userId: "user_123",
+});
+```
+
+### Role Management
+
+**Set User Role:**
+
+```typescript
+await authClient.admin.setRole({
+  userId: "user_123",
+  role: "moderator",
+});
+```
+
+**Check Permissions:**
+
+```typescript
+const hasPermission = await authClient.admin.userHasPermission({
+  userId: "user_123",
+  permissions: {
+    user: ["delete"],
+    session: ["revoke"],
+  },
+});
+
+if (hasPermission.success) {
+  // User has all required permissions
+}
+```
+
+### Ban Management
+
+**Ban User:**
+
+```typescript
+await authClient.admin.banUser({
+  userId: "user_123",
+  reason: "Violation of terms of service",
+  banExpiresIn: 86400 * 7, // 7 days in seconds
+});
+```
+
+**Unban User:**
+
+```typescript
+await authClient.admin.unbanUser({
+  userId: "user_123",
+});
+```
+
+**Permanent Ban:**
+
+```typescript
+await authClient.admin.banUser({
+  userId: "user_123",
+  reason: "Severe violation",
+  // Omit banExpiresIn for permanent ban
+});
+```
+
+### User Impersonation
+
+Impersonate users for support and debugging:
+
+**Start Impersonation:**
+
+```typescript
+const session = await authClient.admin.impersonateUser({
+  userId: "user_123",
+});
+
+// Session now represents the impersonated user
+// session.impersonatedBy contains admin's ID
+```
+
+**Stop Impersonation:**
+
+```typescript
+await authClient.admin.stopImpersonating();
+// Returns to admin's original session
+```
+
+**Check Impersonation:**
+
+```typescript
+const session = await authClient.getSession();
+
+if (session.impersonatedBy) {
+  console.log(`Admin ${session.impersonatedBy} is impersonating`);
+}
+```
+
+<Warning>
+  Impersonation sessions have full access to the user's account. Use carefully and implement audit logging.
+</Warning>
+
+### Session Management
+
+**List User Sessions:**
+
+```typescript
+const sessions = await authClient.admin.listUserSessions({
+  userId: "user_123",
+});
+```
+
+**Revoke Session:**
+
+```typescript
+await authClient.admin.revokeUserSession({
+  sessionId: "session_123",
+});
+```
+
+**Revoke All Sessions:**
+
+```typescript
+await authClient.admin.revokeUserSessions({
+  userId: "user_123",
+});
+```
+
+### Password Management
+
+**Set User Password:**
+
+```typescript
+await authClient.admin.setUserPassword({
+  userId: "user_123",
+  password: "new-secure-password",
+  revokeOtherSessions: true, // Log out from other devices
+});
+```
+
+## Roles & Permissions
+
+Define custom roles with specific permissions using the access control system.
+
+### Default Roles
+
+The plugin includes two default roles:
+
+- **admin** - Full access to all admin operations
+- **user** - No admin permissions
+
+### Custom Roles
+
+**Define Statements:**
+
+```typescript
+import { createAccessControl } from "better-auth/plugins/access";
+
+const ac = createAccessControl({
+  user: ["create", "list", "get", "update", "delete", "set-role", "ban", "impersonate", "set-password"],
+  session: ["list", "revoke", "delete"],
+} as const);
+```
+
+**Create Roles:**
+
+```typescript
+const superAdminRole = ac.newRole({
+  user: ["create", "list", "get", "update", "delete", "set-role", "ban", "impersonate", "set-password"],
+  session: ["list", "revoke", "delete"],
+});
+
+const moderatorRole = ac.newRole({
+  user: ["list", "get", "ban"],
+  session: ["list"],
+});
+
+const supportRole = ac.newRole({
+  user: ["list", "get", "impersonate"],
+  session: ["list"],
+});
+```
+
+**Configure Plugin:**
+
+```typescript auth.ts
+export const auth = betterAuth({
+  plugins: [
+    admin({
+      ac,
+      roles: {
+        "super-admin": superAdminRole,
+        moderator: moderatorRole,
+        support: supportRole,
+      },
+      adminRoles: ["super-admin", "moderator", "support"],
+      defaultRole: "user",
+    }),
+  ],
+});
+```
+
+### Permission Checks
+
+**Server-side:**
+
+```typescript
+const result = await auth.api.userHasPermission({
+  body: {
+    userId: "user_123",
+    permissions: {
+      user: ["ban"],
+      session: ["revoke"],
+    },
+  },
+  headers: request.headers,
+});
+
+if (!result.success) {
+  return new Response(result.error, { status: 403 });
+}
+```
+
+**Client-side:**
+
+```typescript
+const canPerform = authClient.admin.checkRolePermission({
+  role: "moderator",
+  permissions: {
+    user: ["ban"],
+  },
+});
+```
+
+## Middleware Protection
+
+Protect admin routes with middleware:
+
+```typescript middleware.ts
+import { auth } from "./auth";
+
+export async function requireAdmin(request: Request) {
+  const session = await auth.api.getSession({
+    headers: request.headers,
+  });
+
+  if (!session) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const isAdmin = ["admin", "super-admin"].includes(session.user.role);
+
+  if (!isAdmin) {
+    return Response.json({ error: "Forbidden" }, { status: 403 });
+  }
+}
+
+// Usage
+export async function GET(request: Request) {
+  const denied = await requireAdmin(request);
+  if (denied) return denied;
+
+  // Admin-only logic
+}
+```
+
+## Server-Side Usage
+
+All admin operations are available server-side:
+
+```typescript
+import { auth } from "./auth";
+
+// Create user
+const user = await auth.api.createUser({
+  body: {
+    email: "user@example.com",
+    password: "password",
+    role: "user",
+  },
+});
+
+// Ban user
+await auth.api.banUser({
+  body: {
+    userId: user.id,
+    reason: "Spam",
+  },
+  headers: adminRequest.headers,
+});
+
+// List users
+const users = await auth.api.listUsers({
+  query: { limit: "50" },
+  headers: adminRequest.headers,
+});
+```
+
+## Ban Behavior
+
+When a user is banned:
+
+1. **Existing sessions** - Remain active until next validation
+2. **New sign-ins** - Blocked with custom message
+3. **OAuth callbacks** - Redirected to error page
+4. **API requests** - Return 403 Forbidden
+
+**Temporary bans:**
+```typescript
+await authClient.admin.banUser({
+  userId: "user_123",
+  banExpiresIn: 86400, // 24 hours
+});
+// Auto-unbans after expiration
+```
+
+**Permanent bans:**
+```typescript
+await authClient.admin.banUser({
+  userId: "user_123",
+  // No expiration
+});
+// Must manually unban
+```
+
+## API Reference
+
+### Server Methods
+
+- `auth.api.createUser` - Create new user
+- `auth.api.getUser` - Get user by ID
+- `auth.api.listUsers` - List all users with filters
+- `auth.api.adminUpdateUser` - Update user
+- `auth.api.removeUser` - Delete user
+- `auth.api.setRole` - Set user role
+- `auth.api.banUser` - Ban user
+- `auth.api.unbanUser` - Unban user
+- `auth.api.impersonateUser` - Start impersonation
+- `auth.api.stopImpersonating` - Stop impersonation
+- `auth.api.listUserSessions` - List user's sessions
+- `auth.api.revokeUserSession` - Revoke specific session
+- `auth.api.revokeUserSessions` - Revoke all user sessions
+- `auth.api.setUserPassword` - Set user password
+- `auth.api.userHasPermission` - Check user permissions
+
+### Client Methods
+
+- `authClient.admin.createUser` - Create user
+- `authClient.admin.getUser` - Get user
+- `authClient.admin.listUsers` - List users
+- `authClient.admin.updateUser` - Update user
+- `authClient.admin.removeUser` - Delete user
+- `authClient.admin.setRole` - Set role
+- `authClient.admin.banUser` - Ban user
+- `authClient.admin.unbanUser` - Unban user
+- `authClient.admin.impersonateUser` - Impersonate
+- `authClient.admin.stopImpersonating` - Stop impersonation
+- `authClient.admin.listUserSessions` - List sessions
+- `authClient.admin.revokeUserSession` - Revoke session
+- `authClient.admin.revokeUserSessions` - Revoke all sessions
+- `authClient.admin.setUserPassword` - Set password
+- `authClient.admin.userHasPermission` - Check permissions
+- `authClient.admin.checkRolePermission` - Check role permissions (client-side)
+
+## Database Schema
+
+The plugin adds these fields to existing tables:
+
+```typescript
+interface User {
+  // ... existing fields
+  role: string; // User's role
+  banned: boolean | null; // Ban status
+  banReason: string | null; // Reason for ban
+  banExpires: Date | null; // Ban expiration
+}
+
+interface Session {
+  // ... existing fields
+  impersonatedBy: string | null; // Admin ID if impersonating
+}
+```
+
+## Security Considerations
+
+1. **Protect admin endpoints** - Always validate admin role server-side
+2. **Audit logging** - Log all admin actions, especially impersonation
+3. **Rate limiting** - Limit admin API calls to prevent abuse
+4. **Impersonation tracking** - Store impersonation events in audit log
+5. **Session duration** - Use short impersonation session durations
+6. **Role validation** - Verify admin roles match `adminRoles` config
+
+**Example audit logging:**
+
+```typescript
+admin({
+  // ... other config
+  hooks: {
+    afterBanUser: async ({ user, admin }) => {
+      await auditLog.create({
+        action: "user.banned",
+        adminId: admin.id,
+        userId: user.id,
+        timestamp: new Date(),
+      });
+    },
+    afterImpersonateUser: async ({ user, admin }) => {
+      await auditLog.create({
+        action: "user.impersonated",
+        adminId: admin.id,
+        targetUserId: user.id,
+        timestamp: new Date(),
+      });
+    },
+  },
+})
+```

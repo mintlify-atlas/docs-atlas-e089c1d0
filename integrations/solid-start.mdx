@@ -1,0 +1,221 @@
+---
+title: Solid Start
+description: Learn how to integrate Better Auth with Solid Start
+---
+
+Better Auth provides seamless integration with Solid Start through the `toSolidStartHandler` helper.
+
+## Installation
+
+<Steps>
+
+<Step>
+### Install Better Auth
+
+First, install Better Auth in your Solid Start project:
+
+```package-install
+better-auth
+```
+</Step>
+
+<Step>
+### Configure Better Auth
+
+Create your Better Auth instance. See the [installation guide](/docs/installation) for detailed configuration.
+
+```ts title="lib/auth.ts"
+import { betterAuth } from "better-auth";
+
+export const auth = betterAuth({
+  database: {
+    // your database configuration
+  },
+  // other options
+});
+```
+</Step>
+
+<Step>
+### Mount the Handler
+
+Create a catch-all API route to handle authentication requests. The `toSolidStartHandler` helper converts the Better Auth handler into Solid Start route handlers.
+
+Create a file at `routes/api/auth/[...all].ts`:
+
+```ts title="routes/api/auth/[...all].ts"
+import { auth } from "~/lib/auth";
+import { toSolidStartHandler } from "better-auth/solid-start";
+
+export const { GET, POST } = toSolidStartHandler(auth);
+```
+
+This will handle all authentication requests at `/api/auth/*`.
+</Step>
+
+<Step>
+### Create Client Instance
+
+Create a client instance to interact with Better Auth from your Solid components:
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/solid";
+
+export const authClient = createAuthClient({
+  baseURL: import.meta.env.VITE_APP_URL, // optional if same domain
+});
+
+export const { signIn, signOut, signUp, useSession } = authClient;
+```
+</Step>
+
+</Steps>
+
+## Usage
+
+### Client Components
+
+Use the client instance in your Solid components:
+
+```tsx title="components/AuthButton.tsx"
+import { authClient } from "~/lib/auth-client";
+import { Show } from "solid-js";
+
+export function AuthButton() {
+  const session = authClient.useSession();
+
+  return (
+    <Show
+      when={session.data}
+      fallback={
+        <button onClick={() => authClient.signIn.social({ provider: "github" })}>
+          Sign In with GitHub
+        </button>
+      }
+    >
+      {(data) => (
+        <div>
+          <p>Welcome, {data().user.name}</p>
+          <button onClick={() => authClient.signOut()}>Sign Out</button>
+        </div>
+      )}
+    </Show>
+  );
+}
+```
+
+### Server Functions
+
+Access session data in server functions using the `auth.api` object:
+
+```tsx title="routes/dashboard.tsx"
+import { auth } from "~/lib/auth";
+import { createAsync, RouteDefinition } from "@solidjs/router";
+import { getRequestEvent } from "solid-js/web";
+
+export const route: RouteDefinition = {
+  load: () => getSession(),
+};
+
+async function getSession() {
+  "use server";
+  const event = getRequestEvent()!;
+  
+  const session = await auth.api.getSession({
+    headers: event.request.headers,
+  });
+
+  if (!session) {
+    throw new Error("Unauthorized");
+  }
+
+  return session;
+}
+
+export default function Dashboard() {
+  const session = createAsync(() => getSession());
+
+  return (
+    <div>
+      <h1>Welcome, {session()?.user.name}</h1>
+    </div>
+  );
+}
+```
+
+### API Routes
+
+Use Better Auth in custom API routes:
+
+```ts title="routes/api/me.ts"
+import { auth } from "~/lib/auth";
+import { APIEvent } from "@solidjs/start/server";
+
+export async function GET(event: APIEvent) {
+  const session = await auth.api.getSession({
+    headers: event.request.headers,
+  });
+
+  if (!session) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  return new Response(JSON.stringify(session.user), {
+    headers: { "Content-Type": "application/json" },
+  });
+}
+```
+
+## Route Protection
+
+Protect routes by checking session in route load functions:
+
+```tsx title="routes/protected.tsx"
+import { auth } from "~/lib/auth";
+import { RouteDefinition, redirect } from "@solidjs/router";
+import { getRequestEvent } from "solid-js/web";
+
+export const route: RouteDefinition = {
+  load: async () => {
+    "use server";
+    const event = getRequestEvent()!;
+    
+    const session = await auth.api.getSession({
+      headers: event.request.headers,
+    });
+
+    if (!session) {
+      throw redirect("/sign-in");
+    }
+
+    return session;
+  },
+};
+```
+
+## API Reference
+
+### `toSolidStartHandler(auth)`
+
+Converts Better Auth handler to Solid Start API route handlers.
+
+**Parameters:**
+- `auth`: Better Auth instance or handler function
+
+**Returns:** Object with `GET`, `POST`, `PATCH`, `PUT`, `DELETE` handlers
+
+**Source:** [solid-start.ts:1-20](/home/daytona/workspace/source/packages/better-auth/src/integrations/solid-start.ts:1-20)
+
+**Example:**
+```ts
+import { auth } from "~/lib/auth";
+import { toSolidStartHandler } from "better-auth/solid-start";
+
+export const { GET, POST } = toSolidStartHandler(auth);
+```
+
+## Related
+
+- [Installation Guide](/docs/installation)
+- [Client Documentation](/docs/client/solid)
+- [Session Management](/docs/concepts/sessions)

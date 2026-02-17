@@ -1,0 +1,802 @@
+---
+title: Email OTP
+description: One-time password authentication via email
+---
+
+## Overview
+
+Email OTP provides authentication using one-time passwords sent via email. This plugin supports sign-in, email verification, and password reset flows with customizable OTP generation and secure storage options.
+
+## Features
+
+- **Multiple Use Cases** - Sign-in, email verification, and password reset
+- **Customizable OTP** - Configure length, expiration, and generation logic
+- **Secure Storage** - Plain, hashed, encrypted, or custom storage methods
+- **Attempt Limiting** - Configurable maximum verification attempts
+- **Auto Sign-Up** - Optionally create users on first sign-in
+- **Email Verification Override** - Replace default verification with OTP
+- **Rate Limiting** - Built-in protection against abuse
+- **Background Processing** - Non-blocking email sending
+
+## Use Cases
+
+- Passwordless authentication via email OTP
+- Two-factor authentication with email codes
+- Secure email verification during sign-up
+- Password reset with OTP verification
+- Temporary access codes for sensitive operations
+
+## Installation
+
+The Email OTP plugin is included in Better Auth:
+
+```bash
+npm install better-auth
+```
+
+## Configuration
+
+### Plugin Options
+
+<ParamField path="sendVerificationOTP" type="function" required>
+  Function to send the OTP via email.
+  
+  **Parameters:**
+  - `email` (string) - Recipient email address
+  - `otp` (string) - The one-time password
+  - `type` ("sign-in" | "email-verification" | "forget-password") - OTP type
+  - `ctx` (GenericEndpointContext, optional) - Request context
+  
+  **Returns:** `Promise<void>`
+  
+  <Note>
+    It's recommended to not await email sending to avoid timing attacks. Use `waitUntil` or similar on serverless platforms.
+  </Note>
+</ParamField>
+
+<ParamField path="otpLength" type="number" default={6}>
+  Length of the OTP code (number of digits).
+</ParamField>
+
+<ParamField path="expiresIn" type="number" default={300}>
+  OTP expiration time in seconds (default: 5 minutes).
+</ParamField>
+
+<ParamField path="generateOTP" type="function" optional>
+  Custom function to generate OTP codes.
+  
+  **Parameters:**
+  - `email` (string) - User's email address
+  - `type` (string) - OTP type
+  - `ctx` (GenericEndpointContext, optional) - Request context
+  
+  **Returns:** `string` - Generated OTP
+</ParamField>
+
+<ParamField path="sendVerificationOnSignUp" type="boolean" default={false}>
+  Automatically send verification OTP when users sign up.
+</ParamField>
+
+<ParamField path="disableSignUp" type="boolean" default={false}>
+  Prevent automatic user creation during sign-in OTP flow.
+</ParamField>
+
+<ParamField path="allowedAttempts" type="number" default={3}>
+  Maximum number of OTP verification attempts before requiring new OTP.
+</ParamField>
+
+<ParamField path="storeOTP" type="'plain' | 'hashed' | 'encrypted' | object" default="plain">
+  How to store OTP in the database.
+  
+  - `"plain"` - Store OTP as-is
+  - `"hashed"` - Hash OTP before storing
+  - `"encrypted"` - Encrypt OTP before storing
+  - `{ hash: (otp) => Promise<string> }` - Custom hash function
+  - `{ encrypt: (otp) => Promise<string>, decrypt: (otp) => Promise<string> }` - Custom encryption
+</ParamField>
+
+<ParamField path="overrideDefaultEmailVerification" type="boolean" default={false}>
+  Replace Better Auth's default email verification with OTP-based verification.
+</ParamField>
+
+## Setup
+
+<Steps>
+
+<Step title="Configure the plugin">
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth"
+import { emailOTP } from "better-auth/plugins"
+import { sendEmail } from "./lib/email"
+
+export const auth = betterAuth({
+  database: {
+    // your database configuration
+  },
+  plugins: [
+    emailOTP({
+      sendVerificationOTP: async ({ email, otp, type }, request) => {
+        const subjects = {
+          "sign-in": "Your sign-in code",
+          "email-verification": "Verify your email",
+          "forget-password": "Reset your password",
+        }
+        
+        await sendEmail({
+          to: email,
+          subject: subjects[type],
+          html: `
+            <h1>${subjects[type]}</h1>
+            <p>Your verification code is:</p>
+            <h2 style="font-size: 32px; letter-spacing: 5px;">${otp}</h2>
+            <p>This code expires in 5 minutes.</p>
+            <p>If you didn't request this code, please ignore this email.</p>
+          `,
+        })
+      },
+      otpLength: 6,
+      expiresIn: 300, // 5 minutes
+      sendVerificationOnSignUp: true,
+      allowedAttempts: 3,
+      storeOTP: "hashed", // Hash OTPs for security
+    }),
+  ],
+})
+```
+
+</Step>
+
+<Step title="Set up email service">
+
+Reuse the same email setup as Magic Link (Resend, Nodemailer, etc.):
+
+```ts title="lib/email.ts"
+import { Resend } from 'resend'
+
+const resend = new Resend(process.env.RESEND_API_KEY)
+
+export async function sendEmail({
+  to,
+  subject,
+  html,
+}: {
+  to: string
+  subject: string
+  html: string
+}) {
+  await resend.emails.send({
+    from: 'noreply@myapp.com',
+    to,
+    subject,
+    html,
+  })
+}
+```
+
+</Step>
+
+<Step title="Configure environment variables">
+
+```bash title=".env"
+RESEND_API_KEY=re_xxx
+# or your SMTP credentials
+```
+
+</Step>
+
+<Step title="Set up client plugin">
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/react"
+import { emailOTPClient } from "better-auth/client/plugins"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [emailOTPClient()],
+})
+```
+
+</Step>
+
+</Steps>
+
+## Client Usage
+
+### Sign In with OTP
+
+<Tabs items={["React", "Vue", "Svelte", "Vanilla"]}>
+
+<Tab value="React">
+
+```tsx title="components/EmailOTPSignIn.tsx"
+import { authClient } from "@/lib/auth-client"
+import { useState } from "react"
+
+export function EmailOTPSignIn() {
+  const [email, setEmail] = useState("")
+  const [otp, setOtp] = useState("")
+  const [step, setStep] = useState<"email" | "verify">("email")
+  const [loading, setLoading] = useState(false)
+
+  const handleSendOTP = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    
+    try {
+      await authClient.emailOtp.sendVerificationOtp({
+        email,
+        type: "sign-in",
+      })
+      setStep("verify")
+    } catch (error) {
+      console.error("Failed to send OTP:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleVerifyOTP = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    
+    try {
+      await authClient.emailOtp.signInEmailOtp({
+        email,
+        otp,
+      })
+      // Successfully signed in
+      window.location.href = "/dashboard"
+    } catch (error) {
+      console.error("Invalid OTP:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (step === "verify") {
+    return (
+      <form onSubmit={handleVerifyOTP}>
+        <h2>Enter verification code</h2>
+        <p>We sent a code to {email}</p>
+        
+        <input
+          type="text"
+          value={otp}
+          onChange={(e) => setOtp(e.target.value)}
+          placeholder="Enter 6-digit code"
+          maxLength={6}
+          pattern="[0-9]{6}"
+          required
+          disabled={loading}
+        />
+        
+        <button type="submit" disabled={loading}>
+          {loading ? "Verifying..." : "Verify"}
+        </button>
+        
+        <button type="button" onClick={() => setStep("email")}>
+          Change email
+        </button>
+      </form>
+    )
+  }
+
+  return (
+    <form onSubmit={handleSendOTP}>
+      <h2>Sign in with email</h2>
+      
+      <input
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        placeholder="Enter your email"
+        required
+        disabled={loading}
+      />
+      
+      <button type="submit" disabled={loading}>
+        {loading ? "Sending..." : "Send code"}
+      </button>
+    </form>
+  )
+}
+```
+
+</Tab>
+
+<Tab value="Vue">
+
+```vue title="components/EmailOTPSignIn.vue"
+<script setup lang="ts">
+import { ref } from 'vue'
+import { authClient } from '@/lib/auth-client'
+
+const email = ref('')
+const otp = ref('')
+const step = ref<'email' | 'verify'>('email')
+const loading = ref(false)
+
+const handleSendOTP = async () => {
+  loading.value = true
+  try {
+    await authClient.emailOtp.sendVerificationOtp({
+      email: email.value,
+      type: 'sign-in',
+    })
+    step.value = 'verify'
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleVerifyOTP = async () => {
+  loading.value = true
+  try {
+    await authClient.emailOtp.signInEmailOtp({
+      email: email.value,
+      otp: otp.value,
+    })
+    window.location.href = '/dashboard'
+  } finally {
+    loading.value = false
+  }
+}
+</script>
+
+<template>
+  <div>
+    <form v-if="step === 'verify'" @submit.prevent="handleVerifyOTP">
+      <h2>Enter verification code</h2>
+      <p>We sent a code to {{ email }}</p>
+      
+      <input
+        v-model="otp"
+        type="text"
+        placeholder="Enter 6-digit code"
+        maxlength="6"
+        required
+        :disabled="loading"
+      />
+      
+      <button type="submit" :disabled="loading">
+        {{ loading ? 'Verifying...' : 'Verify' }}
+      </button>
+      
+      <button type="button" @click="step = 'email'">
+        Change email
+      </button>
+    </form>
+    
+    <form v-else @submit.prevent="handleSendOTP">
+      <h2>Sign in with email</h2>
+      
+      <input
+        v-model="email"
+        type="email"
+        placeholder="Enter your email"
+        required
+        :disabled="loading"
+      />
+      
+      <button type="submit" :disabled="loading">
+        {{ loading ? 'Sending...' : 'Send code' }}
+      </button>
+    </form>
+  </div>
+</template>
+```
+
+</Tab>
+
+<Tab value="Svelte">
+
+```svelte title="components/EmailOTPSignIn.svelte"
+<script lang="ts">
+  import { authClient } from '$lib/auth-client'
+
+  let email = ''
+  let otp = ''
+  let step: 'email' | 'verify' = 'email'
+  let loading = false
+
+  async function handleSendOTP() {
+    loading = true
+    try {
+      await authClient.emailOtp.sendVerificationOtp({
+        email,
+        type: 'sign-in',
+      })
+      step = 'verify'
+    } finally {
+      loading = false
+    }
+  }
+
+  async function handleVerifyOTP() {
+    loading = true
+    try {
+      await authClient.emailOtp.signInEmailOtp({ email, otp })
+      window.location.href = '/dashboard'
+    } finally {
+      loading = false
+    }
+  }
+</script>
+
+{#if step === 'verify'}
+  <form on:submit|preventDefault={handleVerifyOTP}>
+    <h2>Enter verification code</h2>
+    <p>We sent a code to {email}</p>
+    
+    <input
+      bind:value={otp}
+      type="text"
+      placeholder="Enter 6-digit code"
+      maxlength="6"
+      required
+      disabled={loading}
+    />
+    
+    <button type="submit" disabled={loading}>
+      {loading ? 'Verifying...' : 'Verify'}
+    </button>
+    
+    <button type="button" on:click={() => step = 'email'}>
+      Change email
+    </button>
+  </form>
+{:else}
+  <form on:submit|preventDefault={handleSendOTP}>
+    <h2>Sign in with email</h2>
+    
+    <input
+      bind:value={email}
+      type="email"
+      placeholder="Enter your email"
+      required
+      disabled={loading}
+    />
+    
+    <button type="submit" disabled={loading}>
+      {loading ? 'Sending...' : 'Send code'}
+    </button>
+  </form>
+{/if}
+```
+
+</Tab>
+
+<Tab value="Vanilla">
+
+```ts title="email-otp-signin.ts"
+import { authClient } from './lib/auth-client'
+
+let step: 'email' | 'verify' = 'email'
+let email = ''
+
+const emailForm = document.querySelector('#email-form') as HTMLFormElement
+const verifyForm = document.querySelector('#verify-form') as HTMLFormElement
+
+emailForm?.addEventListener('submit', async (e) => {
+  e.preventDefault()
+  
+  const formData = new FormData(emailForm)
+  email = formData.get('email') as string
+  
+  await authClient.emailOtp.sendVerificationOtp({
+    email,
+    type: 'sign-in',
+  })
+  
+  emailForm.style.display = 'none'
+  verifyForm.style.display = 'block'
+})
+
+verifyForm?.addEventListener('submit', async (e) => {
+  e.preventDefault()
+  
+  const formData = new FormData(verifyForm)
+  const otp = formData.get('otp') as string
+  
+  await authClient.emailOtp.signInEmailOtp({ email, otp })
+  window.location.href = '/dashboard'
+})
+```
+
+</Tab>
+
+</Tabs>
+
+### Verify Email with OTP
+
+```tsx title="components/VerifyEmail.tsx"
+import { authClient } from "@/lib/auth-client"
+import { useState } from "react"
+
+export function VerifyEmail() {
+  const [otp, setOtp] = useState("")
+
+  const handleVerify = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    const result = await authClient.emailOtp.verifyEmail({
+      email: "user@example.com",
+      otp,
+    })
+    
+    if (result.data?.status) {
+      // Email verified successfully
+      console.log("Email verified!")
+    }
+  }
+
+  return (
+    <form onSubmit={handleVerify}>
+      <input
+        type="text"
+        value={otp}
+        onChange={(e) => setOtp(e.target.value)}
+        placeholder="Enter verification code"
+        maxLength={6}
+        required
+      />
+      <button type="submit">Verify Email</button>
+    </form>
+  )
+}
+```
+
+### Password Reset with OTP
+
+```tsx
+// Request password reset OTP
+await authClient.emailOtp.forgetPassword({
+  email: "user@example.com",
+  redirectTo: "/reset-password",
+})
+
+// Reset password with OTP
+await authClient.emailOtp.resetPassword({
+  otp: "123456",
+  password: "newSecurePassword123",
+})
+```
+
+## Server Usage
+
+### Send OTP
+
+```ts title="app/api/otp/send/route.ts"
+import { auth } from "@/lib/auth"
+import { headers } from "next/headers"
+
+export async function POST(request: Request) {
+  const { email, type } = await request.json()
+  
+  const result = await auth.api.sendVerificationOTP({
+    body: { email, type },
+    headers: await headers(),
+  })
+  
+  return Response.json(result)
+}
+```
+
+### Check OTP Validity
+
+```ts title="app/api/otp/check/route.ts"
+import { auth } from "@/lib/auth"
+import { headers } from "next/headers"
+
+export async function POST(request: Request) {
+  const { email, otp } = await request.json()
+  
+  const result = await auth.api.checkVerificationOTP({
+    body: { email, otp },
+    headers: await headers(),
+  })
+  
+  return Response.json(result)
+}
+```
+
+## API Reference
+
+### Client Methods
+
+<ResponseField name="emailOtp.sendVerificationOtp" type="function">
+  Send a verification OTP to the specified email.
+  
+  **Parameters:**
+  - `email` (string, required) - Email address
+  - `type` ("sign-in" | "email-verification" | "forget-password", required) - OTP type
+  
+  **Returns:**
+  - `success` (boolean) - Whether OTP was sent
+</ResponseField>
+
+<ResponseField name="emailOtp.signInEmailOtp" type="function">
+  Sign in using email and OTP.
+  
+  **Parameters:**
+  - `email` (string, required) - Email address
+  - `otp` (string, required) - OTP code
+  
+  **Returns:** Session and user data
+</ResponseField>
+
+<ResponseField name="emailOtp.verifyEmail" type="function">
+  Verify email address with OTP.
+  
+  **Parameters:**
+  - `email` (string, required) - Email address
+  - `otp` (string, required) - OTP code
+  
+  **Returns:**
+  - `status` (boolean) - Verification status
+</ResponseField>
+
+<ResponseField name="emailOtp.checkVerificationOtp" type="function">
+  Check if OTP is valid without consuming it.
+  
+  **Parameters:**
+  - `email` (string, required) - Email address
+  - `otp` (string, required) - OTP code
+  
+  **Returns:**
+  - `valid` (boolean) - Whether OTP is valid
+</ResponseField>
+
+<ResponseField name="emailOtp.forgetPassword" type="function">
+  Request password reset OTP.
+  
+  **Parameters:**
+  - `email` (string, required) - Email address
+  - `redirectTo` (string, optional) - Redirect URL
+  
+  **Returns:**
+  - `status` (boolean) - Whether OTP was sent
+</ResponseField>
+
+<ResponseField name="emailOtp.resetPassword" type="function">
+  Reset password using OTP.
+  
+  **Parameters:**
+  - `otp` (string, required) - OTP code
+  - `password` (string, required) - New password
+  
+  **Returns:**
+  - `status` (boolean) - Reset status
+</ResponseField>
+
+### Server Endpoints
+
+- `POST /email-otp/send-verification-otp` - Send OTP (see routes.ts:53-148)
+- `POST /sign-in/email-otp` - Sign in with OTP
+- `POST /email-otp/verify-email` - Verify email with OTP
+- `POST /email-otp/check-verification-otp` - Check OTP validity
+- `POST /email-otp/request-password-reset` - Request password reset OTP
+- `POST /forget-password/email-otp` - Forget password flow
+- `POST /email-otp/reset-password` - Reset password with OTP
+
+## OTP Storage
+
+### Plain Storage
+
+OTPs stored as-is (not recommended for production):
+
+```ts
+emailOTP({
+  sendVerificationOTP: async ({ email, otp, type }) => {
+    // send email
+  },
+  storeOTP: "plain",
+})
+```
+
+### Hashed Storage
+
+OTPs are hashed before storage:
+
+```ts
+emailOTP({
+  sendVerificationOTP: async ({ email, otp, type }) => {
+    // send email
+  },
+  storeOTP: "hashed",
+})
+```
+
+### Encrypted Storage
+
+OTPs are encrypted before storage:
+
+```ts
+emailOTP({
+  sendVerificationOTP: async ({ email, otp, type }) => {
+    // send email
+  },
+  storeOTP: "encrypted",
+})
+```
+
+### Custom Storage
+
+Use custom hash or encryption:
+
+```ts
+import bcrypt from "bcryptjs"
+
+emailOTP({
+  sendVerificationOTP: async ({ email, otp, type }) => {
+    // send email
+  },
+  storeOTP: {
+    hash: async (otp) => {
+      return await bcrypt.hash(otp, 10)
+    },
+  },
+})
+```
+
+## Rate Limiting
+
+Built-in rate limiting on OTP endpoints (see index.ts:115-164):
+
+```ts
+rateLimit: [
+  {
+    pathMatcher(path) {
+      return path === "/email-otp/send-verification-otp"
+    },
+    window: 60,  // 60 seconds
+    max: 3,      // 3 attempts
+  },
+  {
+    pathMatcher(path) {
+      return path === "/email-otp/check-verification-otp"
+    },
+    window: 60,  // 60 seconds
+    max: 3,      // 3 attempts
+  },
+]
+```
+
+## Attempt Limiting
+
+OTP verification attempts are tracked and limited. After exceeding `allowedAttempts` (default: 3), users must request a new OTP.
+
+The attempt counter is stored with the OTP:
+
+```ts
+value: `${storedOTP}:0` // OTP:attemptCount
+```
+
+Each failed verification increments the counter until max attempts is reached.
+
+## Override Email Verification
+
+Replace default email verification with OTP:
+
+```ts
+emailOTP({
+  sendVerificationOTP: async ({ email, otp, type }) => {
+    // send email
+  },
+  overrideDefaultEmailVerification: true,
+})
+```
+
+When enabled:
+- Sign-up triggers OTP email instead of magic link
+- Email verification uses OTP flow (see index.ts:38-62)
+- Existing verification endpoints use OTP
+
+## Error Codes
+
+Email OTP plugin defines error codes (see routes.ts:24-27):
+
+- `OTP_EXPIRED` - OTP has expired
+- `INVALID_OTP` - OTP is incorrect
+- `TOO_MANY_ATTEMPTS` - Exceeded maximum verification attempts

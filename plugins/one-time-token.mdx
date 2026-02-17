@@ -1,0 +1,562 @@
+---
+title: One-Time Token
+description: Generate secure, single-use tokens for passwordless authentication and magic links
+---
+
+The One-Time Token plugin enables generation and verification of secure, single-use tokens that expire after a short period. These tokens are perfect for magic link authentication, account verification, password-less login, and other temporary access scenarios.
+
+## Security Benefits
+
+- **Single-Use**: Tokens are automatically deleted after verification
+- **Time-Limited**: Configurable expiration (default: 3 minutes)
+- **Session-Bound**: Tokens are tied to specific user sessions
+- **Secure Storage**: Optional token hashing in database
+- **Replay Prevention**: Cannot reuse verified tokens
+- **Custom Generation**: Implement your own token generation logic
+
+## Installation
+
+<Steps>
+
+<Step title="Add the plugin to your Better Auth configuration">
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth";
+import { oneTimeToken } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    oneTimeToken(),
+  ],
+});
+```
+
+</Step>
+
+<Step title="Add the client plugin (optional)">
+
+```ts title="auth-client.ts"
+import { createAuthClient } from "better-auth/client";
+import { oneTimeTokenClient } from "better-auth/plugins/one-time-token/client";
+
+export const authClient = createAuthClient({
+  plugins: [oneTimeTokenClient()],
+});
+```
+
+</Step>
+
+</Steps>
+
+## Configuration
+
+### Basic Configuration
+
+```ts title="auth.ts"
+import { oneTimeToken } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    oneTimeToken({
+      expiresIn: 5, // Token expires in 5 minutes
+    }),
+  ],
+});
+```
+
+### Disable Client Requests
+
+Restrict token generation to server-side only:
+
+```ts title="auth.ts"
+import { oneTimeToken } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    oneTimeToken({
+      disableClientRequest: true,
+    }),
+  ],
+});
+```
+
+### Custom Token Generation
+
+```ts title="auth.ts"
+import { oneTimeToken } from "better-auth/plugins";
+import { customAlphabet } from "nanoid";
+
+const nanoid = customAlphabet("0123456789", 6);
+
+export const auth = betterAuth({
+  plugins: [
+    oneTimeToken({
+      generateToken: async (session, ctx) => {
+        // Generate a 6-digit numeric code
+        return nanoid();
+      },
+    }),
+  ],
+});
+```
+
+### Secure Token Storage (Hashed)
+
+```ts title="auth.ts"
+import { oneTimeToken } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    oneTimeToken({
+      storeToken: "hashed", // Store hashed tokens in database
+    }),
+  ],
+});
+```
+
+### Custom Token Hashing
+
+```ts title="auth.ts"
+import { oneTimeToken } from "better-auth/plugins";
+import crypto from "crypto";
+
+export const auth = betterAuth({
+  plugins: [
+    oneTimeToken({
+      storeToken: {
+        type: "custom-hasher",
+        hash: async (token) => {
+          return crypto
+            .createHash("sha256")
+            .update(token)
+            .digest("hex");
+        },
+      },
+    }),
+  ],
+});
+```
+
+## Usage Examples
+
+### Magic Link Authentication
+
+#### Server-Side Token Generation
+
+```ts title="api/magic-link.ts"
+import { auth } from "./auth";
+import { sendEmail } from "./email-service";
+
+export async function POST(request: Request) {
+  const { email } = await request.json();
+
+  // Sign in or create user
+  const session = await auth.api.signInEmail({
+    body: { email },
+  });
+
+  // Generate one-time token
+  const { token } = await auth.api.generateOneTimeToken({
+    headers: {
+      authorization: `Bearer ${session.session.token}`,
+    },
+  });
+
+  // Send magic link email
+  const magicLink = `https://yourdomain.com/verify?token=${token}`;
+  await sendEmail(email, "Your Magic Link", magicLink);
+
+  return Response.json({ success: true });
+}
+```
+
+#### Client-Side Token Verification
+
+```ts title="pages/verify.ts"
+import { authClient } from "./auth-client";
+
+// Get token from URL query params
+const urlParams = new URLSearchParams(window.location.search);
+const token = urlParams.get("token");
+
+if (token) {
+  const result = await authClient.oneTimeToken.verify({ token });
+
+  if (result.data?.session) {
+    // User is now authenticated
+    window.location.href = "/dashboard";
+  } else {
+    alert("Invalid or expired token");
+  }
+}
+```
+
+### Two-Factor Authentication (TOTP Alternative)
+
+```ts title="2fa-flow.ts"
+import { auth } from "./auth";
+import { sendSMS } from "./sms-service";
+import { customAlphabet } from "nanoid";
+
+const nanoid = customAlphabet("0123456789", 6);
+
+// Configure with custom 6-digit code
+export const authWith2FA = betterAuth({
+  plugins: [
+    oneTimeToken({
+      expiresIn: 10, // 10 minutes
+      generateToken: async () => nanoid(),
+    }),
+  ],
+});
+
+// Send 2FA code
+export async function send2FACode(sessionToken: string, phoneNumber: string) {
+  const { token } = await auth.api.generateOneTimeToken({
+    headers: {
+      authorization: `Bearer ${sessionToken}`,
+    },
+  });
+
+  await sendSMS(phoneNumber, `Your verification code: ${token}`);
+}
+
+// Verify 2FA code
+export async function verify2FACode(code: string) {
+  const result = await authClient.oneTimeToken.verify({ token: code });
+  return result.data?.session;
+}
+```
+
+### Email Verification
+
+```tsx title="EmailVerification.tsx"
+import { useState } from "react";
+import { authClient } from "./auth-client";
+
+export function EmailVerification() {
+  const [status, setStatus] = useState<"idle" | "sending" | "sent">("idle");
+
+  const sendVerificationEmail = async () => {
+    setStatus("sending");
+
+    // Generate token for current session
+    const { data } = await authClient.oneTimeToken.generate();
+
+    if (data?.token) {
+      // Send verification email via your backend
+      await fetch("/api/send-verification-email", {
+        method: "POST",
+        body: JSON.stringify({ token: data.token }),
+      });
+
+      setStatus("sent");
+    }
+  };
+
+  return (
+    <div>
+      <button onClick={sendVerificationEmail} disabled={status !== "idle"}>
+        {status === "sending" && "Sending..."}
+        {status === "sent" && "Email Sent!"}
+        {status === "idle" && "Send Verification Email"}
+      </button>
+    </div>
+  );
+}
+```
+
+### Passwordless Login Flow
+
+```ts title="passwordless-login.ts"
+import { auth } from "./auth";
+import { authClient } from "./auth-client";
+
+// Step 1: Request login code
+export async function requestLoginCode(email: string) {
+  // Create a temporary session
+  const session = await auth.api.signInEmail({
+    body: { email },
+  });
+
+  // Generate one-time token
+  const { token } = await auth.api.generateOneTimeToken({
+    headers: {
+      authorization: `Bearer ${session.session.token}`,
+    },
+  });
+
+  // Send code via email/SMS
+  await sendLoginCode(email, token);
+
+  return { success: true };
+}
+
+// Step 2: Verify code and complete login
+export async function verifyLoginCode(code: string) {
+  const result = await authClient.oneTimeToken.verify({ token: code });
+
+  if (result.data?.session) {
+    return {
+      success: true,
+      user: result.data.user,
+      session: result.data.session,
+    };
+  }
+
+  return { success: false, error: "Invalid or expired code" };
+}
+```
+
+### Server-Only Token Generation
+
+```ts title="server-actions.ts"
+import { auth } from "./auth";
+
+// Configure to disable client requests
+export const authConfig = betterAuth({
+  plugins: [
+    oneTimeToken({
+      disableClientRequest: true, // Only server can generate
+    }),
+  ],
+});
+
+// Server action
+export async function generateInviteToken(sessionToken: string) {
+  const { token } = await auth.api.generateOneTimeToken({
+    headers: {
+      authorization: `Bearer ${sessionToken}`,
+    },
+  });
+
+  return `https://yourdomain.com/accept-invite?token=${token}`;
+}
+```
+
+### Automatic Token on New Session
+
+```ts title="auth.ts"
+import { oneTimeToken } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    oneTimeToken({
+      setOttHeaderOnNewSession: true,
+    }),
+  ],
+});
+
+// Token will be available in response headers
+const response = await authClient.signIn.email({
+  email: "user@example.com",
+  password: "password123",
+});
+
+const oneTimeToken = response.headers?.get("set-ott");
+```
+
+## API Methods
+
+### Generate Token
+
+**Server:**
+
+```ts
+const { token } = await auth.api.generateOneTimeToken({
+  headers: {
+    authorization: `Bearer ${sessionToken}`,
+  },
+});
+```
+
+**Client:**
+
+```ts
+const { data } = await authClient.oneTimeToken.generate();
+console.log(data?.token);
+```
+
+### Verify Token
+
+**Server:**
+
+```ts
+const session = await auth.api.verifyOneTimeToken({
+  body: {
+    token: "abc123",
+  },
+});
+```
+
+**Client:**
+
+```ts
+const { data } = await authClient.oneTimeToken.verify({
+  token: "abc123",
+});
+
+if (data?.session) {
+  // Token is valid, user is authenticated
+}
+```
+
+## How It Works
+
+From `/home/daytona/workspace/source/packages/better-auth/src/plugins/one-time-token/index.ts:89-107`:
+
+```ts
+async function generateToken(
+  c: GenericEndpointContext,
+  session: { session: Session; user: User },
+) {
+  const token = opts?.generateToken
+    ? await opts.generateToken(session, c)
+    : generateRandomString(32);
+    
+  const expiresAt = new Date(Date.now() + (opts?.expiresIn ?? 3) * 60 * 1000);
+  const storedToken = await storeToken(c, token);
+  
+  await c.context.internalAdapter.createVerificationValue({
+    value: session.session.token,
+    identifier: `one-time-token:${storedToken}`,
+    expiresAt,
+  });
+  
+  return token;
+}
+```
+
+The verification process:
+
+1. **Token Lookup**: Finds the token in the database
+2. **Expiration Check**: Verifies the token hasn't expired
+3. **Session Retrieval**: Gets the associated session
+4. **Token Deletion**: Removes the token (single-use)
+5. **Session Cookie**: Sets the session cookie (optional)
+
+## Options
+
+<Properties>
+  <Property name="expiresIn" type="number">
+    Token expiration time in minutes. Default: `3`
+  </Property>
+  <Property name="disableClientRequest" type="boolean">
+    Only allow server-initiated token generation. Default: `false`
+  </Property>
+  <Property name="generateToken" type="function">
+    Custom function to generate tokens. Receives session and context. Default: 32-character random string
+  </Property>
+  <Property name="disableSetSessionCookie" type="boolean">
+    Prevent automatic session cookie creation on verification. Default: `false`
+  </Property>
+  <Property name="storeToken" type="'plain' | 'hashed' | object">
+    How to store tokens in database:
+    - `"plain"`: Store as-is (default)
+    - `"hashed"`: Hash before storage
+    - `{ type: "custom-hasher", hash: (token) => Promise<string> }`: Custom hashing
+  </Property>
+  <Property name="setOttHeaderOnNewSession" type="boolean">
+    Automatically generate and send token in `set-ott` header on new sessions. Default: `false`
+  </Property>
+</Properties>
+
+## Error Handling
+
+The plugin returns specific errors:
+
+```ts
+try {
+  await authClient.oneTimeToken.verify({ token });
+} catch (error) {
+  if (error.status === 400) {
+    if (error.message === "Invalid token") {
+      // Token not found or already used
+    } else if (error.message === "Token expired") {
+      // Token has expired
+    } else if (error.message === "Session expired") {
+      // Underlying session has expired
+    }
+  }
+}
+```
+
+## Best Practices
+
+1. **Keep Expiration Short**: Use 3-10 minutes for security-sensitive operations
+
+```ts
+oneTimeToken({ expiresIn: 5 }) // 5 minutes
+```
+
+2. **Use Secure Delivery**: Send tokens over HTTPS, email, or SMS - never in URLs for sensitive data
+
+3. **Hash Tokens in Database**: Use `storeToken: "hashed"` for production
+
+```ts
+oneTimeToken({ storeToken: "hashed" })
+```
+
+4. **Rate Limit Generation**: Prevent abuse by limiting token generation
+
+5. **Clear Error Messages**: Don't reveal if email exists when sending magic links
+
+6. **Monitor Usage**: Log token generation and verification for security audits
+
+7. **Consider the Use Case**:
+   - Magic links: 15-30 minutes
+   - Email verification: 24-48 hours
+   - 2FA codes: 5-10 minutes
+   - Password reset: 1 hour
+
+## Common Patterns
+
+### Magic Link with Email Verification
+
+```ts
+import { oneTimeToken } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    oneTimeToken({
+      expiresIn: 30, // 30 minutes for email verification
+    }),
+  ],
+});
+```
+
+### SMS Verification Code
+
+```ts
+import { oneTimeToken } from "better-auth/plugins";
+import { customAlphabet } from "nanoid";
+
+const nanoid = customAlphabet("0123456789", 6);
+
+export const auth = betterAuth({
+  plugins: [
+    oneTimeToken({
+      expiresIn: 10,
+      generateToken: async () => nanoid(),
+      storeToken: "hashed",
+    }),
+  ],
+});
+```
+
+### Secure Account Recovery
+
+```ts
+import { oneTimeToken } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    oneTimeToken({
+      expiresIn: 60, // 1 hour
+      disableClientRequest: true, // Server-only
+      storeToken: "hashed", // Secure storage
+      disableSetSessionCookie: false, // Auto-login after verification
+    }),
+  ],
+});
+```

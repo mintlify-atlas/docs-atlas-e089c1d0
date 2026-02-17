@@ -1,0 +1,654 @@
+---
+title: Custom Fields
+description: Learn how to add custom fields to your user, session, and account models in Better Auth.
+---
+
+Custom fields allow you to extend Better Auth's default data models with additional properties specific to your application. This guide covers adding custom fields to users, sessions, and accounts.
+
+## Overview
+
+Better Auth supports custom fields through the `additionalFields` option, allowing you to:
+
+- Add custom user profile data
+- Store additional session information
+- Track account-specific metadata
+- Define field constraints and validations
+- Control field visibility (input/output)
+
+## User Custom Fields
+
+Add custom fields to the user model:
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth";
+import { z } from "zod";
+
+export const auth = betterAuth({
+  database: {
+    // your database config
+  },
+  user: {
+    additionalFields: {
+      // Text field
+      bio: {
+        type: "string",
+        required: false,
+        input: true, // Can be set by user
+        returned: true, // Included in responses
+      },
+      
+      // Number field
+      age: {
+        type: "number",
+        required: false,
+        validator: {
+          input: z.number().min(13).max(120),
+        },
+      },
+      
+      // Boolean field
+      newsletter: {
+        type: "boolean",
+        required: false,
+        defaultValue: false,
+      },
+      
+      // Date field
+      birthDate: {
+        type: "date",
+        required: false,
+      },
+      
+      // JSON field
+      preferences: {
+        type: "json",
+        required: false,
+        defaultValue: {},
+      },
+      
+      // Read-only field
+      createdByAdmin: {
+        type: "boolean",
+        required: false,
+        input: false, // Cannot be set by user
+        returned: true,
+        defaultValue: false,
+      },
+      
+      // Hidden field (not returned in API)
+      internalNotes: {
+        type: "string",
+        required: false,
+        input: false,
+        returned: false,
+      },
+    },
+  },
+});
+```
+
+## Field Type Reference
+
+### Available Types
+
+```ts
+type FieldType = 
+  | "string"    // Text data
+  | "number"    // Numeric data
+  | "boolean"   // True/false
+  | "date"      // Date/timestamp
+  | "json"      // JSON object
+```
+
+### Field Attributes
+
+```ts
+interface DBFieldAttribute {
+  type: FieldType;
+  
+  // Whether field is required on creation
+  required?: boolean;
+  
+  // Allow user input for this field
+  input?: boolean;
+  
+  // Include field in API responses
+  returned?: boolean;
+  
+  // Default value on creation
+  defaultValue?: any;
+  
+  // Field must be unique
+  unique?: boolean;
+  
+  // Custom field name in database
+  fieldName?: string;
+  
+  // Zod validator for input
+  validator?: {
+    input: z.ZodType<any>;
+  };
+  
+  // Transform input before saving
+  transform?: {
+    input?: (value: any) => any;
+    output?: (value: any) => any;
+  };
+}
+```
+
+## Session Custom Fields
+
+Add custom fields to sessions for request-specific data:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  session: {
+    additionalFields: {
+      // Store user's selected theme
+      theme: {
+        type: "string",
+        required: false,
+        defaultValue: "light",
+      },
+      
+      // Track login method
+      loginMethod: {
+        type: "string",
+        required: false,
+        input: false, // Set by server only
+      },
+      
+      // Store device info
+      deviceInfo: {
+        type: "json",
+        required: false,
+      },
+      
+      // Track last activity
+      lastActivityAt: {
+        type: "date",
+        required: false,
+      },
+    },
+  },
+});
+```
+
+## Account Custom Fields
+
+Add metadata to OAuth accounts:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  account: {
+    additionalFields: {
+      // OAuth provider metadata
+      providerAccountId: {
+        type: "string",
+        required: false,
+      },
+      
+      // Store additional OAuth data
+      scope: {
+        type: "string",
+        required: false,
+      },
+      
+      // Track token expiry
+      tokenType: {
+        type: "string",
+        required: false,
+      },
+    },
+  },
+});
+```
+
+## Using Custom Fields
+
+### Setting Fields on Sign Up
+
+```tsx title="components/SignUp.tsx"
+import { authClient } from "@/lib/auth-client";
+
+export function SignUp() {
+  const handleSignUp = async (data: FormData) => {
+    await authClient.signUp.email({
+      email: data.get("email") as string,
+      password: data.get("password") as string,
+      name: data.get("name") as string,
+      // Custom fields
+      bio: data.get("bio") as string,
+      age: parseInt(data.get("age") as string),
+      newsletter: data.get("newsletter") === "on",
+    });
+  };
+
+  return (
+    <form onSubmit={(e) => {
+      e.preventDefault();
+      handleSignUp(new FormData(e.currentTarget));
+    }}>
+      <input name="email" type="email" required />
+      <input name="password" type="password" required />
+      <input name="name" type="text" required />
+      
+      {/* Custom fields */}
+      <textarea name="bio" placeholder="Tell us about yourself" />
+      <input name="age" type="number" min="13" />
+      <label>
+        <input name="newsletter" type="checkbox" />
+        Subscribe to newsletter
+      </label>
+      
+      <button type="submit">Sign Up</button>
+    </form>
+  );
+}
+```
+
+### Updating Custom Fields
+
+Update user fields after sign up:
+
+```tsx title="components/ProfileForm.tsx"
+import { authClient } from "@/lib/auth-client";
+
+export function ProfileForm() {
+  const handleUpdate = async (data: FormData) => {
+    await authClient.updateUser({
+      name: data.get("name") as string,
+      bio: data.get("bio") as string,
+      preferences: {
+        theme: data.get("theme") as string,
+        language: data.get("language") as string,
+      },
+    });
+  };
+
+  return <form onSubmit={handleUpdate}>{/* ... */}</form>;
+}
+```
+
+### Accessing Custom Fields
+
+Read custom fields from session:
+
+```tsx title="components/UserProfile.tsx"
+import { useSession } from "@/lib/hooks/use-session";
+
+export function UserProfile() {
+  const { data: session } = useSession();
+  
+  if (!session) return null;
+  
+  return (
+    <div>
+      <h1>{session.user.name}</h1>
+      <p>{session.user.bio}</p>
+      <p>Age: {session.user.age}</p>
+      <p>Newsletter: {session.user.newsletter ? "Yes" : "No"}</p>
+      
+      {/* Access JSON field */}
+      <p>Theme: {session.user.preferences?.theme}</p>
+    </div>
+  );
+}
+```
+
+## Field Validation
+
+### Zod Validators
+
+Add input validation with Zod:
+
+```ts title="auth.ts"
+import { z } from "zod";
+
+export const auth = betterAuth({
+  user: {
+    additionalFields: {
+      username: {
+        type: "string",
+        required: true,
+        unique: true,
+        validator: {
+          input: z
+            .string()
+            .min(3, "Username must be at least 3 characters")
+            .max(20, "Username must be less than 20 characters")
+            .regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"),
+        },
+      },
+      
+      website: {
+        type: "string",
+        required: false,
+        validator: {
+          input: z.string().url("Must be a valid URL").optional(),
+        },
+      },
+      
+      age: {
+        type: "number",
+        required: false,
+        validator: {
+          input: z
+            .number()
+            .int("Age must be a whole number")
+            .min(13, "Must be at least 13 years old")
+            .max(120, "Invalid age")
+            .optional(),
+        },
+      },
+      
+      tags: {
+        type: "json",
+        required: false,
+        validator: {
+          input: z.array(z.string()).max(10, "Maximum 10 tags").optional(),
+        },
+      },
+    },
+  },
+});
+```
+
+### Transform Functions
+
+Transform data before saving or reading:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  user: {
+    additionalFields: {
+      username: {
+        type: "string",
+        required: true,
+        transform: {
+          // Lowercase before saving
+          input: (value: string) => value.toLowerCase().trim(),
+        },
+      },
+      
+      bio: {
+        type: "string",
+        required: false,
+        transform: {
+          // Truncate on output
+          output: (value: string) => value?.substring(0, 200),
+        },
+      },
+      
+      phoneNumber: {
+        type: "string",
+        required: false,
+        transform: {
+          // Remove formatting before saving
+          input: (value: string) => value.replace(/[^0-9]/g, ""),
+          // Format on output
+          output: (value: string) => {
+            if (!value) return value;
+            return `(${value.slice(0, 3)}) ${value.slice(3, 6)}-${value.slice(6)}`;
+          },
+        },
+      },
+    },
+  },
+});
+```
+
+## Database Schema Updates
+
+After adding custom fields, update your database schema:
+
+### Using CLI
+
+```bash
+npx @better-auth/cli@latest generate
+```
+
+This generates migration files for your database adapter.
+
+### Manual Migration (Prisma Example)
+
+```prisma title="schema.prisma"
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified Boolean
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Custom fields
+  bio           String?
+  age           Int?
+  newsletter    Boolean   @default(false)
+  birthDate     DateTime?
+  preferences   Json?
+  
+  // Relations
+  sessions      Session[]
+  accounts      Account[]
+}
+```
+
+Then run:
+
+```bash
+npx prisma migrate dev
+```
+
+### Manual Migration (Drizzle Example)
+
+```ts title="schema.ts"
+import { pgTable, text, integer, boolean, timestamp, json } from "drizzle-orm/pg-core";
+
+export const users = pgTable("user", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  emailVerified: boolean("emailVerified").notNull(),
+  image: text("image"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+  
+  // Custom fields
+  bio: text("bio"),
+  age: integer("age"),
+  newsletter: boolean("newsletter").default(false),
+  birthDate: timestamp("birthDate"),
+  preferences: json("preferences"),
+});
+```
+
+## TypeScript Types
+
+### Infer Custom Field Types
+
+Better Auth automatically infers types for your custom fields:
+
+```ts title="types/auth.ts"
+import type { auth } from "@/lib/auth";
+
+// Inferred user type with custom fields
+type User = typeof auth.$Infer.Session.user;
+
+// Use in your components
+export function UserProfile({ user }: { user: User }) {
+  // TypeScript knows about custom fields
+  return (
+    <div>
+      <p>{user.bio}</p>
+      <p>{user.age}</p>
+      <p>{user.preferences?.theme}</p>
+    </div>
+  );
+}
+```
+
+### Extend Client Types
+
+Extend the auth client with custom field types:
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/client";
+
+export const authClient = createAuthClient();
+
+// TypeScript will infer custom fields from server
+export type AuthClient = typeof authClient;
+```
+
+## Field Visibility
+
+### Private Fields
+
+Create fields that are never exposed in API responses:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  user: {
+    additionalFields: {
+      // Admin-only field
+      suspendedReason: {
+        type: "string",
+        required: false,
+        input: false,  // Users can't set this
+        returned: false, // Never in API responses
+      },
+      
+      // Internal tracking
+      loginAttempts: {
+        type: "number",
+        required: false,
+        input: false,
+        returned: false,
+        defaultValue: 0,
+      },
+    },
+  },
+});
+```
+
+### Conditional Visibility
+
+Control field visibility based on user role (requires custom logic):
+
+```ts title="api/user.ts"
+export async function getUserProfile(userId: string, requesterId: string) {
+  const user = await auth.api.getUser({ userId });
+  const requester = await auth.api.getUser({ userId: requesterId });
+  
+  // Remove private fields unless requester is admin
+  if (requester.role !== "admin") {
+    delete user.internalNotes;
+    delete user.suspendedReason;
+  }
+  
+  return user;
+}
+```
+
+## Best Practices
+
+1. **Minimal fields**: Only add fields you actually need
+2. **Validation**: Always validate user input with Zod
+3. **Default values**: Provide defaults for optional fields
+4. **Field naming**: Use camelCase for consistency
+5. **Sensitive data**: Use `returned: false` for private information
+6. **JSON sparingly**: Avoid large JSON objects, use separate tables for complex data
+7. **Migrations**: Always generate migrations after adding fields
+
+## Examples
+
+### User Preferences
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  user: {
+    additionalFields: {
+      preferences: {
+        type: "json",
+        required: false,
+        defaultValue: {
+          theme: "light",
+          language: "en",
+          notifications: {
+            email: true,
+            push: false,
+          },
+        },
+      },
+    },
+  },
+});
+```
+
+### User Role System
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  user: {
+    additionalFields: {
+      role: {
+        type: "string",
+        required: true,
+        defaultValue: "user",
+        validator: {
+          input: z.enum(["user", "admin", "moderator"]),
+        },
+      },
+      
+      permissions: {
+        type: "json",
+        required: false,
+        defaultValue: [],
+        input: false, // Only admins can set this
+      },
+    },
+  },
+});
+```
+
+### Profile Completeness
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  user: {
+    additionalFields: {
+      profileComplete: {
+        type: "boolean",
+        required: false,
+        input: false,
+        defaultValue: false,
+      },
+    },
+  },
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          // Calculate if profile is complete
+          const isComplete = !!(user.name && user.bio && user.image);
+          
+          if (isComplete) {
+            await updateUser(user.id, { profileComplete: true });
+          }
+        },
+      },
+    },
+  },
+});
+```
+
+## Next Steps
+
+<Cards>
+  <Card href="/docs/guides/configuration" title="Configuration" description="Learn about all configuration options" />
+  <Card href="/docs/concepts/database" title="Database" description="Understand Better Auth's database schema" />
+  <Card href="/docs/plugins/custom-plugins" title="Custom Plugins" description="Create plugins with custom fields" />
+</Cards>

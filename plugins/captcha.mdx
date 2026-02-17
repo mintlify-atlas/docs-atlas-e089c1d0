@@ -1,0 +1,338 @@
+---
+title: CAPTCHA
+description: Protect your authentication endpoints from bots with CAPTCHA verification
+---
+
+The CAPTCHA plugin adds bot protection to your authentication endpoints by integrating with popular CAPTCHA providers. It verifies CAPTCHA tokens before allowing requests to proceed, helping prevent automated attacks, spam, and abuse.
+
+## Security Benefits
+
+- **Bot Prevention**: Blocks automated scripts and bots from accessing authentication endpoints
+- **Spam Protection**: Reduces spam sign-ups and malicious authentication attempts
+- **Brute Force Mitigation**: Adds an additional layer of protection against credential stuffing attacks
+- **Multiple Provider Support**: Works with Cloudflare Turnstile, Google reCAPTCHA, hCaptcha, and CaptchaFox
+- **Flexible Configuration**: Protect specific endpoints or all authentication routes
+
+## Installation
+
+<Steps>
+
+<Step title="Add the plugin to your Better Auth configuration">
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth";
+import { captcha } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    captcha({
+      provider: "cloudflare-turnstile",
+      secretKey: process.env.TURNSTILE_SECRET_KEY!,
+    }),
+  ],
+});
+```
+
+</Step>
+
+<Step title="Get your CAPTCHA provider credentials">
+
+Sign up for a CAPTCHA provider and obtain your site key and secret key:
+
+- [Cloudflare Turnstile](https://www.cloudflare.com/products/turnstile/)
+- [Google reCAPTCHA](https://www.google.com/recaptcha/admin)
+- [hCaptcha](https://www.hcaptcha.com/)
+- [CaptchaFox](https://www.captchafox.com/)
+
+</Step>
+
+</Steps>
+
+## Configuration
+
+### Cloudflare Turnstile
+
+```ts title="auth.ts"
+import { captcha } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    captcha({
+      provider: "cloudflare-turnstile",
+      secretKey: process.env.TURNSTILE_SECRET_KEY!,
+      // Optional: specify which endpoints to protect
+      endpoints: ["/sign-up/email", "/sign-in/email"],
+    }),
+  ],
+});
+```
+
+### Google reCAPTCHA
+
+```ts title="auth.ts"
+import { captcha } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    captcha({
+      provider: "google-recaptcha",
+      secretKey: process.env.RECAPTCHA_SECRET_KEY!,
+      // Optional: minimum score for reCAPTCHA v3 (0.0 to 1.0)
+      minScore: 0.5,
+    }),
+  ],
+});
+```
+
+### hCaptcha
+
+```ts title="auth.ts"
+import { captcha } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    captcha({
+      provider: "hcaptcha",
+      secretKey: process.env.HCAPTCHA_SECRET_KEY!,
+      siteKey: process.env.HCAPTCHA_SITE_KEY!,
+    }),
+  ],
+});
+```
+
+### CaptchaFox
+
+```ts title="auth.ts"
+import { captcha } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    captcha({
+      provider: "captchafox",
+      secretKey: process.env.CAPTCHAFOX_SECRET_KEY!,
+      siteKey: process.env.CAPTCHAFOX_SITE_KEY!,
+    }),
+  ],
+});
+```
+
+## Provider Setup
+
+### Cloudflare Turnstile
+
+1. Go to the [Cloudflare Dashboard](https://dash.cloudflare.com/)
+2. Navigate to Turnstile
+3. Create a new site
+4. Copy your site key (for frontend) and secret key (for backend)
+5. Add the Turnstile widget to your frontend
+
+### Google reCAPTCHA
+
+1. Visit [Google reCAPTCHA Admin](https://www.google.com/recaptcha/admin)
+2. Register a new site
+3. Choose reCAPTCHA v2 (checkbox) or v3 (score-based)
+4. Copy your site key and secret key
+5. For v3, configure the `minScore` option (default: 0.5)
+
+### hCaptcha
+
+1. Sign up at [hCaptcha](https://www.hcaptcha.com/)
+2. Create a new site
+3. Get your site key and secret key
+4. Add the hCaptcha widget to your login/signup forms
+
+### CaptchaFox
+
+1. Create an account at [CaptchaFox](https://www.captchafox.com/)
+2. Create a new site configuration
+3. Obtain your site key and secret key
+4. Integrate the CaptchaFox widget
+
+## Usage Examples
+
+### Client-Side Integration
+
+You need to include the CAPTCHA token in the request headers:
+
+```ts title="client.ts"
+import { createAuthClient } from "better-auth/client";
+
+const authClient = createAuthClient();
+
+// Example: Sign in with CAPTCHA token
+const captchaToken = "token-from-captcha-widget";
+
+await authClient.signIn.email(
+  {
+    email: "user@example.com",
+    password: "password123",
+  },
+  {
+    headers: {
+      "x-captcha-response": captchaToken,
+    },
+  }
+);
+```
+
+### With React and Cloudflare Turnstile
+
+```tsx title="SignInForm.tsx"
+import { Turnstile } from "@marsidev/react-turnstile";
+import { useState } from "react";
+import { authClient } from "./auth-client";
+
+export function SignInForm() {
+  const [captchaToken, setCaptchaToken] = useState<string>("");
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+
+    await authClient.signIn.email(
+      {
+        email: formData.get("email") as string,
+        password: formData.get("password") as string,
+      },
+      {
+        headers: {
+          "x-captcha-response": captchaToken,
+        },
+      }
+    );
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input type="email" name="email" required />
+      <input type="password" name="password" required />
+      
+      <Turnstile
+        siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY!}
+        onSuccess={setCaptchaToken}
+      />
+      
+      <button type="submit" disabled={!captchaToken}>
+        Sign In
+      </button>
+    </form>
+  );
+}
+```
+
+### Custom Endpoints
+
+By default, the plugin protects these endpoints:
+- `/sign-up/email`
+- `/sign-in/email`
+- `/request-password-reset`
+
+You can customize which endpoints to protect:
+
+```ts title="auth.ts"
+captcha({
+  provider: "cloudflare-turnstile",
+  secretKey: process.env.TURNSTILE_SECRET_KEY!,
+  endpoints: [
+    "/sign-up/email",
+    "/sign-in/email",
+    "/change-password",
+  ],
+})
+```
+
+## How It Works
+
+The CAPTCHA plugin works as a middleware that:
+
+1. **Intercepts Requests**: Checks incoming requests to protected endpoints
+2. **Validates Token**: Extracts the CAPTCHA token from the `x-captcha-response` header
+3. **Verifies with Provider**: Sends the token to the CAPTCHA provider's verification API
+4. **Allows or Blocks**: Allows the request to proceed if valid, or returns an error if verification fails
+
+From `/home/daytona/workspace/source/packages/better-auth/src/plugins/captcha/index.ts:14-50`:
+
+```ts
+onRequest: async (request, ctx) => {
+  const endpoints = options.endpoints?.length
+    ? options.endpoints
+    : defaultEndpoints;
+
+  if (!endpoints.some((endpoint) => request.url.includes(endpoint)))
+    return undefined;
+
+  if (!options.secretKey) {
+    throw new Error(INTERNAL_ERROR_CODES.MISSING_SECRET_KEY);
+  }
+
+  const captchaResponse = request.headers.get("x-captcha-response");
+  const remoteUserIP = getIp(request, ctx.options) ?? undefined;
+
+  if (!captchaResponse) {
+    return middlewareResponse({
+      message: EXTERNAL_ERROR_CODES.MISSING_RESPONSE,
+      status: 400,
+    });
+  }
+
+  const siteVerifyURL =
+    options.siteVerifyURLOverride || siteVerifyMap[options.provider];
+
+  const handlerParams = {
+    siteVerifyURL,
+    captchaResponse,
+    secretKey: options.secretKey,
+    remoteIP: remoteUserIP,
+  };
+
+  // Verify with the appropriate provider
+  if (options.provider === Providers.CLOUDFLARE_TURNSTILE) {
+    return await verifyHandlers.cloudflareTurnstile(handlerParams);
+  }
+  // ... other providers
+}
+```
+
+## Options
+
+<Properties>
+  <Property name="provider" type="string" required>
+    The CAPTCHA provider to use: `"cloudflare-turnstile"`, `"google-recaptcha"`, `"hcaptcha"`, or `"captchafox"`
+  </Property>
+  <Property name="secretKey" type="string" required>
+    The secret key from your CAPTCHA provider
+  </Property>
+  <Property name="siteKey" type="string">
+    Required for hCaptcha and CaptchaFox
+  </Property>
+  <Property name="minScore" type="number">
+    Minimum score for Google reCAPTCHA v3 (0.0 to 1.0). Default: 0.5
+  </Property>
+  <Property name="endpoints" type="string[]">
+    Array of endpoint paths to protect. Default: `["/sign-up/email", "/sign-in/email", "/request-password-reset"]`
+  </Property>
+  <Property name="siteVerifyURLOverride" type="string">
+    Override the default verification URL for the provider
+  </Property>
+</Properties>
+
+## Error Handling
+
+The plugin returns different HTTP status codes:
+
+- **400**: Missing CAPTCHA token in request headers
+- **403**: CAPTCHA verification failed (invalid token or low score)
+- **500**: Server error (missing secret key or provider API failure)
+
+```ts
+try {
+  await authClient.signIn.email(
+    { email, password },
+    { headers: { "x-captcha-response": token } }
+  );
+} catch (error) {
+  if (error.status === 403) {
+    console.error("CAPTCHA verification failed");
+  }
+}
+```

@@ -1,0 +1,636 @@
+---
+title: One Tap (Google)
+description: Enable Google One Tap authentication for seamless user sign-in
+---
+
+The One Tap plugin integrates Google's One Tap sign-in, providing a streamlined authentication experience that allows users to sign in with a single click using their Google account. It leverages FedCM (Federated Credential Management) for modern browsers and falls back to the traditional One Tap API.
+
+## Use Cases
+
+- **Frictionless authentication**: Let users sign in with one click without leaving your page
+- **Mobile-optimized**: Works seamlessly on mobile devices
+- **Cross-platform**: Supports both platform and cross-platform authenticators
+- **Progressive enhancement**: Automatically uses FedCM when available, falls back gracefully
+- **Account linking**: Automatically links accounts with verified emails
+
+## Installation
+
+<Steps>
+
+<Step title="Get Google OAuth credentials">
+
+First, you need to set up a Google OAuth application:
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select an existing one
+3. Enable the Google+ API
+4. Create OAuth 2.0 credentials (Web application)
+5. Add authorized JavaScript origins and redirect URIs
+6. Copy your Client ID and Client Secret
+
+</Step>
+
+<Step title="Configure Google OAuth provider">
+
+Add Google as a social provider in your auth configuration:
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth";
+import { oneTap } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  socialProviders: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID as string,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+    },
+  },
+  plugins: [
+    oneTap({
+      // clientId is inherited from socialProviders.google
+    })
+  ]
+});
+```
+
+</Step>
+
+<Step title="Add the client plugin">
+
+```ts title="client.ts"
+import { createAuthClient } from "better-auth/client";
+import { oneTapClient } from "better-auth/plugins/one-tap/client";
+
+export const client = createAuthClient({
+  plugins: [
+    oneTapClient({
+      clientId: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID as string,
+    })
+  ]
+});
+```
+
+</Step>
+
+</Steps>
+
+## Configuration Options
+
+### Server Configuration
+
+<ParamField path="clientId" type="string" optional>
+  Google Client ID. If not provided, uses the client ID from `socialProviders.google`.
+  
+  ```ts
+  oneTap({
+    clientId: "your-google-client-id.apps.googleusercontent.com"
+  })
+  ```
+</ParamField>
+
+<ParamField path="disableSignup" type="boolean" default="false">
+  When `true`, prevents new user registration. Only existing users can sign in.
+  
+  ```ts
+  oneTap({
+    disableSignup: true
+  })
+  ```
+</ParamField>
+
+### Client Configuration
+
+<ParamField path="clientId" type="string" required>
+  Google Client ID for the One Tap flow.
+  
+  ```ts
+  oneTapClient({
+    clientId: "your-google-client-id.apps.googleusercontent.com"
+  })
+  ```
+</ParamField>
+
+<ParamField path="autoSelect" type="boolean" default="false">
+  Automatically select the account if the user is already signed in to Google.
+  
+  ```ts
+  oneTapClient({
+    clientId: "...",
+    autoSelect: true
+  })
+  ```
+</ParamField>
+
+<ParamField path="cancelOnTapOutside" type="boolean" default="false">
+  Cancel the One Tap flow when the user taps outside the prompt.
+  
+  <Note>
+  To use this option, you must disable FedCM by setting `promptOptions.fedCM` to `false`.
+  </Note>
+  
+  ```ts
+  oneTapClient({
+    clientId: "...",
+    cancelOnTapOutside: true,
+    promptOptions: {
+      fedCM: false
+    }
+  })
+  ```
+</ParamField>
+
+<ParamField path="uxMode" type="'popup' | 'redirect'" default="'popup'">
+  The UX mode for the One Tap flow.
+  
+  ```ts
+  oneTapClient({
+    clientId: "...",
+    uxMode: "redirect"
+  })
+  ```
+</ParamField>
+
+<ParamField path="context" type="'signin' | 'signup' | 'use'" default="'signin'">
+  The context for the One Tap prompt.
+  
+  ```ts
+  oneTapClient({
+    clientId: "...",
+    context: "signup" // Changes prompt text to "Sign up with Google"
+  })
+  ```
+</ParamField>
+
+<ParamField path="promptOptions" type="object" optional>
+  Configuration for prompt behavior and exponential backoff.
+  
+  <ParamField path="promptOptions.baseDelay" type="number" default="1000">
+    Base delay in milliseconds for exponential backoff.
+  </ParamField>
+  
+  <ParamField path="promptOptions.maxAttempts" type="number" default="5">
+    Maximum number of prompt attempts before calling `onPromptNotification`.
+  </ParamField>
+  
+  <ParamField path="promptOptions.fedCM" type="boolean" default="true">
+    Whether to use FedCM (Federated Credential Management) when available.
+  </ParamField>
+  
+  ```ts
+  oneTapClient({
+    clientId: "...",
+    promptOptions: {
+      baseDelay: 2000,
+      maxAttempts: 3,
+      fedCM: true
+    }
+  })
+  ```
+</ParamField>
+
+<ParamField path="additionalOptions" type="Record<string, any>" optional>
+  Additional options to pass to the Google One Tap API.
+  
+  ```ts
+  oneTapClient({
+    clientId: "...",
+    additionalOptions: {
+      // See Google One Tap API docs
+    }
+  })
+  ```
+</ParamField>
+
+## Usage Examples
+
+### Basic One Tap Prompt
+
+<CodeGroup>
+
+```tsx title="React"
+import { useEffect } from "react";
+import { client } from "./client";
+
+function LoginPage() {
+  useEffect(() => {
+    // Show One Tap prompt on page load
+    client.oneTap({
+      onPromptNotification: (notification) => {
+        // Prompt was dismissed or skipped
+        console.log("One Tap dismissed:", notification);
+        // You can show an alternative UI here
+      }
+    });
+  }, []);
+  
+  return (
+    <div>
+      <h1>Welcome</h1>
+      {/* One Tap prompt will appear automatically */}
+    </div>
+  );
+}
+```
+
+```vue title="Vue"
+<script setup>
+import { onMounted } from 'vue'
+import { client } from './client'
+
+onMounted(() => {
+  // Show One Tap prompt on page load
+  client.oneTap({
+    onPromptNotification: (notification) => {
+      console.log('One Tap dismissed:', notification)
+    }
+  })
+})
+</script>
+
+<template>
+  <div>
+    <h1>Welcome</h1>
+  </div>
+</template>
+```
+
+```svelte title="Svelte"
+<script>
+import { onMount } from 'svelte'
+import { client } from './client'
+
+onMount(() => {
+  client.oneTap({
+    onPromptNotification: (notification) => {
+      console.log('One Tap dismissed:', notification)
+    }
+  })
+})
+</script>
+
+<div>
+  <h1>Welcome</h1>
+</div>
+```
+
+</CodeGroup>
+
+### One Tap with Button Fallback
+
+```tsx title="LoginWithFallback.tsx"
+import { useState, useEffect } from "react";
+import { client } from "./client";
+
+function LoginWithFallback() {
+  const [showButton, setShowButton] = useState(false);
+  
+  useEffect(() => {
+    // Try One Tap first
+    client.oneTap({
+      onPromptNotification: (notification) => {
+        // If prompt is dismissed, show button
+        setShowButton(true);
+      }
+    });
+  }, []);
+  
+  const signInWithButton = async () => {
+    await client.oneTap({
+      button: {
+        container: "#google-button",
+        config: {
+          type: "standard",
+          theme: "filled_blue",
+          size: "large",
+          text: "signin_with"
+        }
+      }
+    });
+  };
+  
+  return (
+    <div>
+      <h1>Sign In</h1>
+      {showButton && (
+        <div>
+          <p>Click to sign in with Google</p>
+          <div id="google-button" ref={signInWithButton} />
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### Render Button Directly
+
+```tsx title="GoogleButton.tsx"
+import { useEffect, useRef } from "react";
+import { client } from "./client";
+
+function GoogleButton() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    if (containerRef.current) {
+      client.oneTap({
+        button: {
+          container: containerRef.current,
+          config: {
+            type: "standard",
+            theme: "outline",
+            size: "large",
+            text: "signin_with",
+            shape: "rectangular",
+            logo_alignment: "left"
+          }
+        },
+        callbackURL: "/dashboard" // Redirect after sign-in
+      });
+    }
+  }, []);
+  
+  return <div ref={containerRef} />;
+}
+```
+
+### Custom Options
+
+```ts
+await client.oneTap({
+  autoSelect: true,
+  uxMode: "popup",
+  context: "signin",
+  callbackURL: "/dashboard",
+  nonce: "random-nonce-value",
+  promptOptions: {
+    fedCM: true,
+    baseDelay: 1500,
+    maxAttempts: 3
+  },
+  onPromptNotification: (notification) => {
+    if (notification?.isDismissedMoment?.()) {
+      const reason = notification.getDismissedReason();
+      console.log("Dismissed:", reason);
+    }
+  },
+  fetchOptions: {
+    onSuccess: (context) => {
+      console.log("Signed in successfully!");
+    },
+    onError: (error) => {
+      console.error("Sign-in failed:", error);
+    }
+  }
+});
+```
+
+## API Reference
+
+### Client Methods
+
+#### `client.oneTap(options?)`
+
+Trigger the Google One Tap flow or render a Google Sign-In button.
+
+```ts
+await client.oneTap({
+  // Prompt options
+  autoSelect: true,
+  cancelOnTapOutside: false,
+  uxMode: "popup",
+  context: "signin",
+  
+  // Callbacks
+  callbackURL: "/dashboard",
+  onPromptNotification: (notification) => {
+    console.log("Prompt notification:", notification);
+  },
+  
+  // Button mode (optional)
+  button: {
+    container: "#button-container",
+    config: {
+      type: "standard",
+      theme: "filled_blue"
+    }
+  },
+  
+  // Advanced
+  nonce: "custom-nonce",
+  fetchOptions: { /* ... */ }
+});
+```
+
+**Parameters:**
+- `autoSelect`: Auto-select account if already signed in
+- `cancelOnTapOutside`: Cancel when clicking outside (requires `promptOptions.fedCM: false`)
+- `uxMode`: `"popup"` or `"redirect"`
+- `context`: `"signin"`, `"signup"`, or `"use"`
+- `callbackURL`: URL to redirect after successful sign-in
+- `onPromptNotification`: Callback when prompt is dismissed or skipped
+- `button`: Render button instead of showing prompt
+- `nonce`: Custom nonce for security
+- `fetchOptions`: Additional fetch options
+
+### Button Configuration
+
+When using button mode, you can configure the button appearance:
+
+<ParamField path="button.container" type="HTMLElement | string" required>
+  Container element or CSS selector where the button should be rendered.
+</ParamField>
+
+<ParamField path="button.config" type="GsiButtonConfiguration" optional>
+  Button styling configuration.
+  
+  <ParamField path="type" type="'standard' | 'icon'" required>
+    Button type.
+  </ParamField>
+  
+  <ParamField path="theme" type="'outline' | 'filled_blue' | 'filled_black'" optional>
+    Button theme.
+  </ParamField>
+  
+  <ParamField path="size" type="'small' | 'medium' | 'large'" optional>
+    Button size.
+  </ParamField>
+  
+  <ParamField path="text" type="'signin_with' | 'signup_with' | 'continue_with' | 'signin'" optional>
+    Button text.
+  </ParamField>
+  
+  <ParamField path="shape" type="'rectangular' | 'pill' | 'circle' | 'square'" optional>
+    Button shape.
+  </ParamField>
+  
+  <ParamField path="logo_alignment" type="'left' | 'center'" optional>
+    Google logo alignment (standard button only).
+  </ParamField>
+  
+  <ParamField path="width" type="number" optional>
+    Minimum button width in pixels (max 400).
+  </ParamField>
+</ParamField>
+
+### Server Endpoint
+
+#### `POST /one-tap/callback`
+
+Callback endpoint that verifies the Google ID token and creates a session.
+
+**Request Body:**
+```json
+{
+  "idToken": "eyJhbGciOiJSUzI1NiIsImtpZCI6..."
+}
+```
+
+**Response:**
+```json
+{
+  "session": { /* Session object */ },
+  "user": { /* User object */ }
+}
+```
+
+## Account Linking
+
+The plugin automatically handles account linking when:
+
+1. **User exists with matching email**: If a user with the same email exists, the plugin checks if account linking is enabled
+2. **Trusted provider**: If Google is in the `trustedProviders` list, the account is automatically linked
+3. **Email verified**: If the email is verified in the Google token, the account is linked
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth";
+import { oneTap } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  account: {
+    accountLinking: {
+      enabled: true,
+      trustedProviders: ["google"] // Auto-link Google accounts
+    }
+  },
+  plugins: [oneTap()]
+});
+```
+
+## FedCM Support
+
+The plugin automatically uses [FedCM (Federated Credential Management)](https://developer.chrome.com/docs/identity/fedcm/overview) when available in the browser. FedCM provides:
+
+- Better privacy for users
+- Native browser UI
+- Improved security
+- Better user experience
+
+To disable FedCM and use the traditional One Tap API:
+
+```ts
+oneTapClient({
+  clientId: "...",
+  promptOptions: {
+    fedCM: false
+  }
+})
+```
+
+## Error Handling
+
+The plugin handles various error scenarios:
+
+```tsx
+const { data, error } = await client.oneTap({
+  onPromptNotification: (notification) => {
+    if (notification?.isSkippedMoment?.()) {
+      const reason = notification.getSkippedReason();
+      // Reasons: "user_cancel", "tap_outside", etc.
+      console.log("Skipped:", reason);
+    }
+    
+    if (notification?.isDismissedMoment?.()) {
+      const reason = notification.getDismissedReason();
+      // Reasons: "credential_returned", "cancel_called", etc.
+      console.log("Dismissed:", reason);
+    }
+  }
+});
+
+if (error) {
+  console.error("One Tap error:", error.message);
+}
+```
+
+<Note>
+The plugin implements exponential backoff for retrying the One Tap prompt when it's dismissed or skipped, unless the dismissal reason indicates the user explicitly cancelled.
+</Note>
+
+## Source Code Reference
+
+The One Tap plugin implementation:
+
+```ts title="plugins/one-tap/index.ts" showLineNumbers {33-177}
+import type { BetterAuthPlugin } from "@better-auth/core";
+import { createAuthEndpoint } from "@better-auth/core/api";
+import { createRemoteJWKSet, jwtVerify } from "jose";
+import { APIError } from "../../api";
+import { setSessionCookie } from "../../cookies";
+
+export const oneTap = (options?: OneTapOptions | undefined) => ({
+  id: "one-tap",
+  endpoints: {
+    oneTapCallback: createAuthEndpoint(
+      "/one-tap/callback",
+      { method: "POST" },
+      async (ctx) => {
+        const { idToken } = ctx.body;
+        
+        // Verify JWT token
+        const JWKS = createRemoteJWKSet(
+          new URL("https://www.googleapis.com/oauth2/v3/certs")
+        );
+        const { payload } = await jwtVerify(idToken, JWKS, {
+          issuer: ["https://accounts.google.com", "accounts.google.com"],
+          audience: options?.clientId || ctx.context.options.socialProviders?.google?.clientId
+        });
+        
+        const { email, email_verified, name, picture, sub } = payload;
+        
+        // Find or create user
+        let user = await ctx.context.internalAdapter.findUserByEmail(email);
+        
+        if (!user) {
+          if (options?.disableSignup) {
+            throw new APIError("BAD_GATEWAY", { message: "User not found" });
+          }
+          
+          // Create new user
+          const newUser = await ctx.context.internalAdapter.createOAuthUser(
+            { email, emailVerified: email_verified, name, image: picture },
+            { providerId: "google", accountId: sub }
+          );
+          user = newUser;
+        }
+        
+        // Create session
+        const session = await ctx.context.internalAdapter.createSession(user.id);
+        await setSessionCookie(ctx, { user, session });
+        
+        return ctx.json({ token: session.token, user });
+      }
+    )
+  }
+});
+```
+
+<Note>
+The code above is simplified for documentation. See the full implementation in `packages/better-auth/src/plugins/one-tap/index.ts` and `packages/better-auth/src/plugins/one-tap/client.ts`.
+</Note>
+
+## Resources
+
+- [Google One Tap Documentation](https://developers.google.com/identity/gsi/web/guides/overview)
+- [FedCM API Documentation](https://developer.chrome.com/docs/identity/fedcm/overview)
+- [Google Sign-In JavaScript Reference](https://developers.google.com/identity/gsi/web/reference/js-reference)

@@ -1,0 +1,371 @@
+---
+title: Client Initialization
+---
+
+The Better Auth client provides type-safe authentication methods for your frontend application. It supports vanilla JavaScript, React, Vue, Svelte, and Solid.
+
+## Installation
+
+Better Auth client is included in the main package:
+
+```bash
+npm install better-auth
+```
+
+## Import
+
+### Vanilla JavaScript
+
+```ts
+import { createAuthClient } from "better-auth/client";
+```
+
+### React
+
+```ts
+import { createAuthClient } from "better-auth/react";
+```
+
+### Vue
+
+```ts
+import { createAuthClient } from "better-auth/vue";
+```
+
+### Svelte
+
+```ts
+import { createAuthClient } from "better-auth/svelte";
+```
+
+### Solid
+
+```ts
+import { createAuthClient } from "better-auth/solid";
+```
+
+## Basic Setup
+
+### Vanilla/React
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/react";
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+});
+```
+
+### Vue
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/vue";
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+});
+```
+
+### Svelte
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/svelte";
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+});
+```
+
+## Configuration Options
+
+<ParamField path="baseURL" type="string" required>
+  The base URL of your application where Better Auth is mounted.
+  
+  ```ts
+  baseURL: "https://example.com"
+  ```
+</ParamField>
+
+<ParamField path="basePath" type="string" default="/api/auth">
+  The base path where authentication routes are mounted.
+  
+  ```ts
+  basePath: "/auth"
+  ```
+</ParamField>
+
+<ParamField path="credentials" type="'include' | 'omit' | 'same-origin'" default="include">
+  Fetch credentials mode for requests.
+  
+  ```ts
+  credentials: "include" // Send cookies with requests
+  ```
+</ParamField>
+
+<ParamField path="plugins" type="BetterAuthClientPlugin[]">
+  Array of client plugins to extend functionality.
+  
+  ```ts
+  import { twoFactorClient } from "better-auth/client/plugins";
+  
+  plugins: [
+    twoFactorClient(),
+  ]
+  ```
+</ParamField>
+
+<ParamField path="fetchOptions" type="FetchOptions">
+  Additional options to pass to fetch requests.
+  
+  ```ts
+  fetchOptions: {
+    headers: {
+      "X-Custom-Header": "value",
+    },
+  }
+  ```
+</ParamField>
+
+## With Type Inference
+
+To get full type safety, infer types from your server configuration:
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/react";
+import { inferAdditionalFields } from "better-auth/client/plugins";
+import type { auth } from "./auth"; // Your server auth instance
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [
+    inferAdditionalFields<typeof auth>(),
+  ],
+});
+
+// Now authClient has full type inference
+type Session = typeof authClient.$Infer.Session;
+```
+
+## With Plugins
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/react";
+import { 
+  twoFactorClient,
+  organizationClient,
+} from "better-auth/client/plugins";
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [
+    twoFactorClient(),
+    organizationClient(),
+  ],
+});
+
+// Plugin methods are now available
+await authClient.twoFactor.enable();
+await authClient.organization.create({ name: "My Org" });
+```
+
+## Environment Variables
+
+It's recommended to use environment variables for the base URL:
+
+```ts title="lib/auth-client.ts"
+export const authClient = createAuthClient({
+  baseURL: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+});
+```
+
+```env title=".env.local"
+NEXT_PUBLIC_APP_URL=https://example.com
+```
+
+## Framework-Specific Setup
+
+### Next.js
+
+For Next.js, create the client in a separate file and use it throughout your app:
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/react";
+
+export const authClient = createAuthClient({
+  baseURL: process.env.NEXT_PUBLIC_APP_URL!,
+});
+
+export const { 
+  signIn, 
+  signUp, 
+  signOut,
+  useSession,
+} = authClient;
+```
+
+```tsx title="app/components/auth-button.tsx"
+"use client";
+
+import { useSession, signOut } from "@/lib/auth-client";
+
+export function AuthButton() {
+  const { data: session } = useSession();
+  
+  if (session) {
+    return (
+      <button onClick={() => signOut()}>
+        Sign Out
+      </button>
+    );
+  }
+  
+  return <a href="/sign-in">Sign In</a>;
+}
+```
+
+### SvelteKit
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/svelte";
+import { PUBLIC_APP_URL } from "$env/static/public";
+
+export const authClient = createAuthClient({
+  baseURL: PUBLIC_APP_URL,
+});
+```
+
+```svelte title="routes/+page.svelte"
+<script lang="ts">
+  import { authClient } from "$lib/auth-client";
+  
+  const session = authClient.useSession();
+</script>
+
+{#if $session.data}
+  <p>Welcome, {$session.data.user.name}!</p>
+  <button on:click={() => authClient.signOut()}>
+    Sign Out
+  </button>
+{:else}
+  <a href="/sign-in">Sign In</a>
+{/if}
+```
+
+### Solid Start
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/solid";
+
+export const authClient = createAuthClient({
+  baseURL: import.meta.env.VITE_APP_URL || "http://localhost:3000",
+});
+```
+
+```tsx title="components/auth-button.tsx"
+import { authClient } from "~/lib/auth-client";
+
+export function AuthButton() {
+  const session = authClient.useSession();
+  
+  return (
+    <Show
+      when={session()?.data}
+      fallback={<a href="/sign-in">Sign In</a>}
+    >
+      <button onClick={() => authClient.signOut()}>
+        Sign Out
+      </button>
+    </Show>
+  );
+}
+```
+
+## Advanced Configuration
+
+### Custom Fetch Implementation
+
+You can provide a custom fetch implementation:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+
+const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  fetchOptions: {
+    customFetchImpl: async (url, options) => {
+      // Add custom logic before fetch
+      console.log("Fetching:", url);
+      
+      const response = await fetch(url, options);
+      
+      // Add custom logic after fetch
+      console.log("Response:", response.status);
+      
+      return response;
+    },
+  },
+});
+```
+
+### Request Interceptors
+
+Add custom headers or modify requests:
+
+```ts
+const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  fetchOptions: {
+    onRequest: (context) => {
+      // Add custom headers
+      context.options.headers = {
+        ...context.options.headers,
+        "X-Client-Version": "1.0.0",
+      };
+    },
+    onResponse: (context) => {
+      // Handle responses
+      if (context.response.status === 401) {
+        console.log("Unauthorized, redirecting...");
+      }
+    },
+  },
+});
+```
+
+## Accessing Client Instance
+
+The client instance provides:
+
+```ts
+const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+});
+
+// Methods - see Methods documentation
+authClient.signIn.email({ email, password });
+authClient.signUp.email({ email, password });
+authClient.signOut();
+
+// Hooks - see Hooks documentation
+authClient.useSession(); // React/Vue/Svelte/Solid
+
+// Store - for vanilla JS
+const { data } = authClient.$store.session.get();
+
+// Fetch - low-level fetch wrapper
+authClient.$fetch("/custom-endpoint");
+
+// Type inference
+type Session = typeof authClient.$Infer.Session;
+
+// Error codes
+authClient.$ERROR_CODES.USER_NOT_FOUND;
+```
+
+## See Also
+
+- [Client Methods](/api/client/methods) - Available client methods
+- [Client Hooks](/api/client/hooks) - React/Vue/Svelte hooks
+- [Client Types](/api/client/types) - TypeScript types
+- [React Integration](/client/react) - React-specific guide
+- [Vue Integration](/client/vue) - Vue-specific guide

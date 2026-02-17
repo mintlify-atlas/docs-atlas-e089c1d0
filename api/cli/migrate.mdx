@@ -1,0 +1,366 @@
+---
+title: migrate Command
+---
+
+The `migrate` command automatically runs database migrations for the built-in Kysely adapter. It detects schema changes and applies them to your database.
+
+## Usage
+
+```bash
+npx @better-auth/cli migrate
+```
+
+<Callout type="info">
+The `migrate` command only works with the built-in Kysely adapter. For Prisma and Drizzle, use their respective migration tools.
+</Callout>
+
+## What It Does
+
+The `migrate` command:
+
+1. Reads your Better Auth configuration
+2. Compares your config with the current database schema
+3. Detects changes (new tables, new columns, etc.)
+4. Shows you what will be changed
+5. Applies the migrations after confirmation
+
+## Options
+
+<ParamField path="--cwd" type="string" default="process.cwd()">
+  Working directory for the command.
+  
+  ```bash
+  npx @better-auth/cli migrate --cwd ./my-project
+  ```
+</ParamField>
+
+<ParamField path="--config" type="string">
+  Path to your auth configuration file.
+  
+  ```bash
+  npx @better-auth/cli migrate --config ./lib/auth.ts
+  ```
+</ParamField>
+
+<ParamField path="-y, --yes" type="boolean">
+  Automatically accept and run migrations without prompting.
+  
+  ```bash
+  npx @better-auth/cli migrate -y
+  ```
+</ParamField>
+
+## Migration Process
+
+### 1. Detection
+
+The command analyzes your configuration:
+
+```
+preparing migration...
+```
+
+### 2. Preview
+
+Shows what will change:
+
+```
+🔑 The migration will affect the following:
+-> email, password fields on user table.
+-> secret, backupCodes fields on twoFactor table.
+```
+
+### 3. Confirmation
+
+Prompts for confirmation:
+
+```
+Are you sure you want to run these migrations? (y/N)
+```
+
+Use `-y` to skip this prompt:
+
+```bash
+npx @better-auth/cli migrate -y
+```
+
+### 4. Execution
+
+Runs the migrations:
+
+```
+migrating...
+🚀 migration was completed successfully!
+```
+
+## Migration Types
+
+The migrate command can:
+
+### Create New Tables
+
+When you add a plugin or custom table:
+
+```
+🔑 The migration will affect the following:
+-> id, userId, secret, backupCodes fields on twoFactor table.
+```
+
+### Add Columns
+
+When you add custom fields:
+
+```
+🔑 The migration will affect the following:
+-> role, subscription fields on user table.
+```
+
+### Update Existing Schema
+
+When plugins require schema changes:
+
+```
+🔑 The migration will affect the following:
+-> organizationId field on user table.
+```
+
+## Adapter Support
+
+### Supported: Kysely (Built-in)
+
+Full migration support:
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth";
+
+export const auth = betterAuth({
+  database: {
+    dialect: "postgres",
+    url: process.env.DATABASE_URL,
+  },
+});
+```
+
+Then run:
+
+```bash
+npx @better-auth/cli migrate
+```
+
+### Not Supported: Prisma
+
+For Prisma, use Prisma's migration tools:
+
+```bash
+# Generate schema first
+npx @better-auth/cli generate
+
+# Then use Prisma
+npx prisma db push
+# or
+npx prisma migrate dev
+```
+
+If you try to run `migrate` with Prisma:
+
+```
+The migrate command only works with the built-in Kysely adapter. 
+For Prisma, run `npx @better-auth/cli generate` to create the schema, 
+then use Prisma's migrate or push to apply it.
+```
+
+### Not Supported: Drizzle
+
+For Drizzle, use Drizzle Kit:
+
+```bash
+# Generate schema first
+npx @better-auth/cli generate
+
+# Then use Drizzle Kit
+npx drizzle-kit push
+# or
+npx drizzle-kit migrate
+```
+
+If you try to run `migrate` with Drizzle:
+
+```
+The migrate command only works with the built-in Kysely adapter. 
+For Drizzle, run `npx @better-auth/cli generate` to create the schema, 
+then use Drizzle's migrate or push to apply it.
+```
+
+## No Changes Needed
+
+If your database is up to date:
+
+```
+🚀 No migrations needed.
+```
+
+## Examples
+
+### Basic Migration
+
+```bash
+npx @better-auth/cli migrate
+```
+
+Follow the prompts to apply migrations.
+
+### Auto-confirm Migrations
+
+```bash
+npx @better-auth/cli migrate -y
+```
+
+Useful for CI/CD pipelines.
+
+### Custom Config Path
+
+```bash
+npx @better-auth/cli migrate --config ./lib/auth.ts
+```
+
+### Production Deployment
+
+```bash
+# Review changes first
+npx @better-auth/cli migrate
+
+# Then auto-apply in production
+NODE_ENV=production npx @better-auth/cli migrate -y
+```
+
+## Common Workflows
+
+### Adding a Plugin
+
+```bash
+# 1. Add plugin to auth.ts
+# Example: Add twoFactor plugin
+
+# 2. Run migration
+npx @better-auth/cli migrate
+```
+
+The command will:
+- Detect the new `twoFactor` table is needed
+- Show you what will be created
+- Apply the migration after confirmation
+
+### Adding Custom Fields
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  user: {
+    additionalFields: {
+      role: {
+        type: "string",
+        required: true,
+        defaultValue: "user",
+      },
+    },
+  },
+});
+```
+
+```bash
+npx @better-auth/cli migrate
+```
+
+The command will:
+- Detect the new `role` column is needed
+- Add it to the `user` table
+- Set the default value
+
+### Updating After Config Changes
+
+After any changes to your auth configuration:
+
+```bash
+npx @better-auth/cli migrate
+```
+
+This keeps your database schema in sync.
+
+## Troubleshooting
+
+### Database Connection Failed
+
+Ensure your database is running and the connection string is correct:
+
+```bash
+# Check your .env file
+cat .env | grep DATABASE_URL
+
+# Test connection
+npx @better-auth/cli migrate
+```
+
+### Migrations Stuck
+
+If migrations don't complete:
+
+1. Check database logs
+2. Ensure no other processes are using the database
+3. Try running with `--yes` flag
+
+### Unsupported Adapter Error
+
+If you get an "unsupported adapter" error:
+
+```bash
+# For Prisma
+npx @better-auth/cli generate
+npx prisma db push
+
+# For Drizzle
+npx @better-auth/cli generate
+npx drizzle-kit push
+```
+
+### Manual Migration Needed
+
+For complex schema changes, you may need to write manual migrations. See your adapter's documentation:
+
+- [Prisma Migrations](https://www.prisma.io/docs/concepts/components/prisma-migrate)
+- [Drizzle Migrations](https://orm.drizzle.team/kit-docs/overview)
+
+## CI/CD Integration
+
+For automated deployments:
+
+```yaml title=".github/workflows/deploy.yml"
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install dependencies
+        run: npm install
+      
+      - name: Run migrations
+        run: npx @better-auth/cli migrate -y
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      
+      - name: Deploy
+        run: npm run deploy
+```
+
+## See Also
+
+- [generate Command](/api/cli/generate) - Generate schema files
+- [Kysely Adapter](/adapters/kysely) - Kysely setup
+- [Prisma Adapter](/adapters/prisma) - Prisma migrations
+- [Drizzle Adapter](/adapters/drizzle) - Drizzle migrations
+- [Database Guide](/concepts/database) - Database concepts

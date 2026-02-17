@@ -1,0 +1,764 @@
+---
+title: Username
+description: Username-based authentication with flexible validation and normalization
+---
+
+## Overview
+
+The Username plugin enables authentication using usernames instead of or alongside email addresses. It provides flexible validation, normalization, and display username support with built-in protection against username conflicts.
+
+## Features
+
+- **Username Authentication** - Sign in with username and password
+- **Display Usernames** - Separate display names from login usernames
+- **Flexible Validation** - Custom validation rules for usernames
+- **Normalization** - Automatic username normalization (lowercase, custom)
+- **Length Constraints** - Configurable min/max username length
+- **Availability Check** - API to check username availability
+- **Duplicate Prevention** - Automatic uniqueness validation
+- **Email Verification** - Optional email verification requirement
+
+## Use Cases
+
+- Social platforms requiring unique usernames
+- Gaming applications with player handles
+- Enterprise apps with username-based login
+- Community platforms with display names
+- Apps requiring case-insensitive username matching
+
+## Installation
+
+The Username plugin is included in Better Auth:
+
+```bash
+npm install better-auth
+```
+
+## Configuration
+
+### Plugin Options
+
+<ParamField path="minUsernameLength" type="number" default={3}>
+  Minimum length for usernames.
+</ParamField>
+
+<ParamField path="maxUsernameLength" type="number" default={30}>
+  Maximum length for usernames.
+</ParamField>
+
+<ParamField path="usernameValidator" type="function" optional>
+  Custom validation function for usernames.
+  
+  **Parameters:**
+  - `username` (string) - Username to validate
+  
+  **Returns:** `Promise<boolean>` - True if valid
+  
+  **Default:** Allows alphanumeric characters, underscores, and periods (see index.ts:87-89)
+</ParamField>
+
+<ParamField path="displayUsernameValidator" type="function" optional>
+  Custom validation function for display usernames.
+  
+  **Parameters:**
+  - `displayUsername` (string) - Display username to validate
+  
+  **Returns:** `Promise<boolean>` - True if valid
+</ParamField>
+
+<ParamField path="usernameNormalization" type="function | false" default="(username) => username.toLowerCase()">
+  Function to normalize usernames. Set to `false` to disable normalization.
+  
+  **Parameters:**
+  - `username` (string) - Username to normalize
+  
+  **Returns:** `string` - Normalized username
+</ParamField>
+
+<ParamField path="displayUsernameNormalization" type="function | false" default={false}>
+  Function to normalize display usernames.
+  
+  **Parameters:**
+  - `displayUsername` (string) - Display username to normalize
+  
+  **Returns:** `string` - Normalized display username
+</ParamField>
+
+<ParamField path="validationOrder" type="object" optional>
+  Control when validation occurs relative to normalization.
+  
+  <Expandable title="Validation Order Options">
+    <ParamField path="username" type="'pre-normalization' | 'post-normalization'" default="pre-normalization">
+      When to validate username (before or after normalization).
+    </ParamField>
+    
+    <ParamField path="displayUsername" type="'pre-normalization' | 'post-normalization'" default="pre-normalization">
+      When to validate display username.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="schema" type="InferOptionSchema" optional>
+  Custom schema configuration for username fields.
+</ParamField>
+
+## Setup
+
+<Steps>
+
+<Step title="Configure the plugin">
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth"
+import { username } from "better-auth/plugins"
+
+export const auth = betterAuth({
+  database: {
+    // your database configuration
+  },
+  plugins: [
+    username({
+      minUsernameLength: 3,
+      maxUsernameLength: 20,
+      usernameValidator: async (username) => {
+        // Only allow alphanumeric, underscore, and period
+        return /^[a-zA-Z0-9_.]+$/.test(username)
+      },
+      displayUsernameValidator: async (displayUsername) => {
+        // Allow more characters for display name
+        return displayUsername.length >= 2 && displayUsername.length <= 30
+      },
+      usernameNormalization: (username) => username.toLowerCase(),
+      displayUsernameNormalization: false, // Keep original case
+    }),
+  ],
+})
+```
+
+</Step>
+
+<Step title="Run database migrations">
+
+```bash
+npx better-auth migrate
+```
+
+This adds username fields to the user table:
+- `username` (string, nullable, unique) - Login username (normalized)
+- `displayUsername` (string, nullable) - Display name (original case)
+
+</Step>
+
+<Step title="Set up client plugin">
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/react"
+import { usernameClient } from "better-auth/client/plugins"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [usernameClient()],
+})
+```
+
+</Step>
+
+</Steps>
+
+## Client Usage
+
+### Sign In with Username
+
+<Tabs items={["React", "Vue", "Svelte", "Vanilla"]}>
+
+<Tab value="React">
+
+```tsx title="components/UsernameSignIn.tsx"
+import { authClient } from "@/lib/auth-client"
+import { useState } from "react"
+
+export function UsernameSignIn() {
+  const [username, setUsername] = useState("")
+  const [password, setPassword] = useState("")
+  const [loading, setLoading] = useState(false)
+
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    
+    try {
+      await authClient.signIn.username({
+        username,
+        password,
+        rememberMe: true, // Optional
+      })
+      window.location.href = "/dashboard"
+    } catch (error) {
+      console.error("Sign in failed:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSignIn}>
+      <h2>Sign In</h2>
+      
+      <input
+        type="text"
+        value={username}
+        onChange={(e) => setUsername(e.target.value)}
+        placeholder="Username"
+        required
+        disabled={loading}
+      />
+      
+      <input
+        type="password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        placeholder="Password"
+        required
+        disabled={loading}
+      />
+      
+      <button type="submit" disabled={loading}>
+        {loading ? "Signing in..." : "Sign In"}
+      </button>
+    </form>
+  )
+}
+```
+
+</Tab>
+
+<Tab value="Vue">
+
+```vue title="components/UsernameSignIn.vue"
+<script setup lang="ts">
+import { ref } from 'vue'
+import { authClient } from '@/lib/auth-client'
+
+const username = ref('')
+const password = ref('')
+const loading = ref(false)
+
+const handleSignIn = async () => {
+  loading.value = true
+  try {
+    await authClient.signIn.username({
+      username: username.value,
+      password: password.value,
+      rememberMe: true,
+    })
+    window.location.href = '/dashboard'
+  } finally {
+    loading.value = false
+  }
+}
+</script>
+
+<template>
+  <form @submit.prevent="handleSignIn">
+    <h2>Sign In</h2>
+    
+    <input
+      v-model="username"
+      type="text"
+      placeholder="Username"
+      required
+      :disabled="loading"
+    />
+    
+    <input
+      v-model="password"
+      type="password"
+      placeholder="Password"
+      required
+      :disabled="loading"
+    />
+    
+    <button type="submit" :disabled="loading">
+      {{ loading ? 'Signing in...' : 'Sign In' }}
+    </button>
+  </form>
+</template>
+```
+
+</Tab>
+
+<Tab value="Svelte">
+
+```svelte title="components/UsernameSignIn.svelte"
+<script lang="ts">
+  import { authClient } from '$lib/auth-client'
+
+  let username = ''
+  let password = ''
+  let loading = false
+
+  async function handleSignIn() {
+    loading = true
+    try {
+      await authClient.signIn.username({
+        username,
+        password,
+        rememberMe: true,
+      })
+      window.location.href = '/dashboard'
+    } finally {
+      loading = false
+    }
+  }
+</script>
+
+<form on:submit|preventDefault={handleSignIn}>
+  <h2>Sign In</h2>
+  
+  <input
+    bind:value={username}
+    type="text"
+    placeholder="Username"
+    required
+    disabled={loading}
+  />
+  
+  <input
+    bind:value={password}
+    type="password"
+    placeholder="Password"
+    required
+    disabled={loading}
+  />
+  
+  <button type="submit" disabled={loading}>
+    {loading ? 'Signing in...' : 'Sign In'}
+  </button>
+</form>
+```
+
+</Tab>
+
+<Tab value="Vanilla">
+
+```ts title="username-signin.ts"
+import { authClient } from './lib/auth-client'
+
+const form = document.querySelector('#signin-form') as HTMLFormElement
+
+form?.addEventListener('submit', async (e) => {
+  e.preventDefault()
+  
+  const formData = new FormData(form)
+  const username = formData.get('username') as string
+  const password = formData.get('password') as string
+  
+  await authClient.signIn.username({
+    username,
+    password,
+    rememberMe: true,
+  })
+  
+  window.location.href = '/dashboard'
+})
+```
+
+</Tab>
+
+</Tabs>
+
+### Sign Up with Username
+
+```tsx title="components/UsernameSignUp.tsx"
+import { authClient } from "@/lib/auth-client"
+import { useState, useEffect } from "react"
+
+export function UsernameSignUp() {
+  const [email, setEmail] = useState("")
+  const [username, setUsername] = useState("")
+  const [displayUsername, setDisplayUsername] = useState("")
+  const [password, setPassword] = useState("")
+  const [available, setAvailable] = useState<boolean | null>(null)
+  const [checking, setChecking] = useState(false)
+
+  // Check username availability
+  useEffect(() => {
+    if (username.length < 3) {
+      setAvailable(null)
+      return
+    }
+
+    const timer = setTimeout(async () => {
+      setChecking(true)
+      try {
+        const result = await authClient.username.isAvailable({
+          username,
+        })
+        setAvailable(result.data.available)
+      } finally {
+        setChecking(false)
+      }
+    }, 500)
+
+    return () => clearTimeout(timer)
+  }, [username])
+
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    await authClient.signUp.email({
+      email,
+      password,
+      username,
+      displayUsername: displayUsername || username,
+      name: displayUsername || username,
+    })
+    
+    window.location.href = "/dashboard"
+  }
+
+  return (
+    <form onSubmit={handleSignUp}>
+      <h2>Create Account</h2>
+      
+      <input
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        placeholder="Email"
+        required
+      />
+      
+      <div>
+        <input
+          type="text"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          placeholder="Username"
+          required
+        />
+        {checking && <span>Checking...</span>}
+        {available === true && <span>✓ Available</span>}
+        {available === false && <span>✗ Taken</span>}
+      </div>
+      
+      <input
+        type="text"
+        value={displayUsername}
+        onChange={(e) => setDisplayUsername(e.target.value)}
+        placeholder="Display Name (optional)"
+      />
+      
+      <input
+        type="password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        placeholder="Password"
+        required
+      />
+      
+      <button type="submit" disabled={available === false}>
+        Sign Up
+      </button>
+    </form>
+  )
+}
+```
+
+### Check Username Availability
+
+```tsx
+const result = await authClient.username.isAvailable({
+  username: "john_doe",
+})
+
+if (result.data.available) {
+  console.log("Username is available")
+}
+```
+
+## Server Usage
+
+### Sign In
+
+```ts title="app/api/auth/username/signin/route.ts"
+import { auth } from "@/lib/auth"
+import { headers } from "next/headers"
+
+export async function POST(request: Request) {
+  const { username, password, rememberMe } = await request.json()
+  
+  const result = await auth.api.signInUsername({
+    body: { username, password, rememberMe },
+    headers: await headers(),
+  })
+  
+  return Response.json(result)
+}
+```
+
+### Check Availability
+
+```ts title="app/api/username/check/route.ts"
+import { auth } from "@/lib/auth"
+import { headers } from "next/headers"
+
+export async function POST(request: Request) {
+  const { username } = await request.json()
+  
+  const result = await auth.api.isUsernameAvailable({
+    body: { username },
+    headers: await headers(),
+  })
+  
+  return Response.json(result)
+}
+```
+
+## API Reference
+
+### Client Methods
+
+<ResponseField name="signIn.username" type="function">
+  Sign in using username and password.
+  
+  **Parameters:**
+  - `username` (string, required) - Username
+  - `password` (string, required) - Password
+  - `rememberMe` (boolean, optional) - Remember session
+  - `callbackURL` (string, optional) - Redirect URL after sign-in
+  
+  **Returns:** Session and user data
+</ResponseField>
+
+<ResponseField name="username.isAvailable" type="function">
+  Check if a username is available.
+  
+  **Parameters:**
+  - `username` (string, required) - Username to check
+  
+  **Returns:**
+  - `available` (boolean) - Whether username is available
+</ResponseField>
+
+### Server Endpoints
+
+- `POST /sign-in/username` - Sign in with username (see index.ts:190-406)
+- `POST /is-username-available` - Check username availability (see index.ts:408-464)
+
+## Username Normalization
+
+Usernames are automatically normalized on creation and update (see index.ts:115-123, 136-159):
+
+```ts
+// Default normalization
+username({
+  usernameNormalization: (username) => username.toLowerCase(),
+})
+
+// Custom normalization
+username({
+  usernameNormalization: (username) => {
+    return username
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '') // Remove special chars
+      .slice(0, 20) // Limit length
+  },
+})
+
+// Disable normalization
+username({
+  usernameNormalization: false,
+})
+```
+
+Normalization happens via database hooks before user creation and updates.
+
+## Display Usernames
+
+Separate display names from login usernames:
+
+```ts
+// Sign up with both
+await authClient.signUp.email({
+  email: "john@example.com",
+  password: "password123",
+  username: "john_doe",          // For login (lowercase)
+  displayUsername: "John Doe",   // For display (original case)
+})
+
+// Auto-fill display name from username
+await authClient.signUp.email({
+  email: "john@example.com",
+  password: "password123",
+  username: "john_doe",
+  // displayUsername automatically set to "john_doe"
+})
+```
+
+The plugin automatically syncs username and displayUsername (see index.ts:567-575):
+- If only `username` provided → `displayUsername = username`
+- If only `displayUsername` provided → `username = displayUsername`
+
+## Validation
+
+### Default Validation
+
+By default, usernames must contain only alphanumeric characters, underscores, and periods (see index.ts:87-89):
+
+```ts
+function defaultUsernameValidator(username: string) {
+  return /^[a-zA-Z0-9_.]+$/.test(username)
+}
+```
+
+### Custom Validation
+
+```ts
+username({
+  usernameValidator: async (username) => {
+    // Disallow certain words
+    const reserved = ['admin', 'root', 'system']
+    if (reserved.includes(username.toLowerCase())) {
+      return false
+    }
+    
+    // Only allow alphanumeric and underscore
+    return /^[a-zA-Z0-9_]+$/.test(username)
+  },
+})
+```
+
+### Length Validation
+
+Configured via min/max options (see index.ts:253-273, 422-436):
+
+```ts
+username({
+  minUsernameLength: 3,
+  maxUsernameLength: 20,
+})
+```
+
+Validation errors:
+- `USERNAME_TOO_SHORT` - Below minimum length
+- `USERNAME_TOO_LONG` - Above maximum length
+- `INVALID_USERNAME` - Failed custom validation
+
+## Validation Order
+
+Control when validation occurs:
+
+```ts
+username({
+  // Validate before normalization (default)
+  validationOrder: {
+    username: "pre-normalization",
+  },
+  usernameValidator: (username) => {
+    // Validates "JohnDoe" before lowercase conversion
+    return /^[A-Za-z0-9_]+$/.test(username)
+  },
+  usernameNormalization: (username) => username.toLowerCase(),
+})
+
+// Or validate after normalization
+username({
+  validationOrder: {
+    username: "post-normalization",
+  },
+  usernameValidator: (username) => {
+    // Validates "johndoe" after lowercase conversion
+    return /^[a-z0-9_]+$/.test(username)
+  },
+})
+```
+
+## Uniqueness Validation
+
+Usernames are automatically checked for uniqueness during sign-up and profile updates (see index.ts:515-535):
+
+```ts
+// Prevented during sign-up
+if (user exists with same username) {
+  throw "USERNAME_IS_ALREADY_TAKEN"
+}
+
+// Prevented during profile update (only if username changed to another user's)
+if (username taken by different user) {
+  throw "USERNAME_IS_ALREADY_TAKEN"
+}
+```
+
+## Sign-In Flow
+
+The username sign-in flow (see index.ts:240-406):
+
+1. **Validate username** - Check length and custom validation
+2. **Normalize username** - Apply normalization function
+3. **Find user** - Look up by normalized username
+4. **Verify password** - Check password hash
+5. **Email verification** - Optional email verification check
+6. **Create session** - Generate session token
+7. **Set cookie** - Store session cookie
+8. **Return user** - Send user data and token
+
+## Email Verification
+
+Optionally require email verification (see index.ts:346-383):
+
+```ts
+export const auth = betterAuth({
+  emailAndPassword: {
+    requireEmailVerification: true,
+  },
+  emailVerification: {
+    sendOnSignIn: true,
+    sendVerificationEmail: async ({ user, url }) => {
+      // Send verification email
+    },
+  },
+  plugins: [username()],
+})
+```
+
+When enabled:
+- Unverified users cannot sign in with username
+- Verification email sent on sign-in attempt
+- Error: `EMAIL_NOT_VERIFIED`
+
+## Timing Attack Prevention
+
+Password is hashed even for invalid usernames to prevent timing attacks (see index.ts:297-299):
+
+```ts
+if (!user) {
+  // Hash password to maintain consistent response time
+  await ctx.context.password.hash(ctx.body.password)
+  throw "INVALID_USERNAME_OR_PASSWORD"
+}
+```
+
+## Database Schema
+
+User table is extended with username fields:
+
+```ts
+interface User {
+  username: string | null         // Login username (normalized, unique)
+  displayUsername: string | null  // Display name (original case)
+  // ... other fields
+}
+```
+
+## Error Codes
+
+Username plugin defines error codes (see error-codes.ts):
+
+- `INVALID_USERNAME_OR_PASSWORD` - Invalid credentials
+- `INVALID_USERNAME` - Username validation failed
+- `USERNAME_TOO_SHORT` - Below minimum length
+- `USERNAME_TOO_LONG` - Above maximum length
+- `USERNAME_IS_ALREADY_TAKEN` - Username not available
+- `INVALID_DISPLAY_USERNAME` - Display username validation failed
+- `EMAIL_NOT_VERIFIED` - Email verification required

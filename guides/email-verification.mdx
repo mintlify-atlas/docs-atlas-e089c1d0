@@ -1,0 +1,555 @@
+---
+title: Email Verification
+description: Learn how to implement email verification in your Better Auth application.
+---
+
+Email verification is an essential security feature that confirms users own the email addresses they sign up with. This guide covers implementing email verification in Better Auth.
+
+## Overview
+
+Better Auth provides built-in email verification with these features:
+
+- Secure JWT-based verification tokens
+- Configurable token expiration
+- Automatic email sending on sign-up or sign-in
+- Email change verification with two-step confirmation
+- Hooks for custom verification logic
+
+## Basic Setup
+
+<Steps>
+<Step>
+### Configure Email Verification
+
+Add email verification configuration to your auth setup:
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth";
+import { sendEmail } from "./email"; // your email service
+
+export const auth = betterAuth({
+  emailVerification: {
+    sendVerificationEmail: async ({ user, url, token }, request) => {
+      await sendEmail({
+        to: user.email,
+        subject: "Verify your email address",
+        html: `
+          <h1>Welcome to My App!</h1>
+          <p>Please verify your email address by clicking the link below:</p>
+          <a href="${url}">Verify Email</a>
+          <p>This link will expire in 1 hour.</p>
+        `,
+      });
+    },
+    
+    // Send verification email on sign-up
+    sendOnSignUp: true,
+    
+    // Token expiration (in seconds)
+    expiresIn: 60 * 60, // 1 hour
+    
+    // Auto sign-in after verification
+    autoSignInAfterVerification: true,
+  },
+  // ...
+});
+```
+</Step>
+
+<Step>
+### Create Email Service
+
+Implement your email sending function. Here are examples with popular email services:
+
+```ts title="email.ts (Nodemailer)"
+import nodemailer from "nodemailer";
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT),
+  secure: true,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASSWORD,
+  },
+});
+
+export async function sendEmail({
+  to,
+  subject,
+  html,
+}: {
+  to: string;
+  subject: string;
+  html: string;
+}) {
+  await transporter.sendMail({
+    from: process.env.EMAIL_FROM,
+    to,
+    subject,
+    html,
+  });
+}
+```
+
+```ts title="email.ts (Resend)"
+import { Resend } from "resend";
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+export async function sendEmail({
+  to,
+  subject,
+  html,
+}: {
+  to: string;
+  subject: string;
+  html: string;
+}) {
+  await resend.emails.send({
+    from: process.env.EMAIL_FROM!,
+    to,
+    subject,
+    html,
+  });
+}
+```
+
+```ts title="email.ts (SendGrid)"
+import sgMail from "@sendgrid/mail";
+
+sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
+
+export async function sendEmail({
+  to,
+  subject,
+  html,
+}: {
+  to: string;
+  subject: string;
+  html: string;
+}) {
+  await sgMail.send({
+    from: process.env.EMAIL_FROM!,
+    to,
+    subject,
+    html,
+  });
+}
+```
+</Step>
+
+<Step>
+### Implement Verification Flow
+
+The verification flow is handled automatically by Better Auth:
+
+1. User signs up with email/password
+2. Verification email is sent (if `sendOnSignUp: true`)
+3. User clicks the verification link
+4. Better Auth validates the token and marks email as verified
+5. User is optionally signed in (if `autoSignInAfterVerification: true`)
+
+The verification endpoint is automatically created at `/api/auth/verify-email`.
+</Step>
+</Steps>
+
+## Client-Side Implementation
+
+### Manual Verification Request
+
+Allow users to request a new verification email:
+
+```tsx title="components/VerifyEmailButton.tsx"
+import { authClient } from "./auth-client";
+import { useState } from "react";
+
+export function VerifyEmailButton() {
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const handleSendVerification = async () => {
+    setLoading(true);
+    try {
+      await authClient.sendVerificationEmail({
+        email: user.email,
+        callbackURL: "/dashboard",
+      });
+      setMessage("Verification email sent! Check your inbox.");
+    } catch (error) {
+      setMessage("Failed to send verification email.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div>
+      <button onClick={handleSendVerification} disabled={loading}>
+        {loading ? "Sending..." : "Resend Verification Email"}
+      </button>
+      {message && <p>{message}</p>}
+    </div>
+  );
+}
+```
+
+### Check Verification Status
+
+Display verification status in your UI:
+
+```tsx title="components/EmailVerificationBanner.tsx"
+import { useSession } from "./hooks/use-session";
+
+export function EmailVerificationBanner() {
+  const { data: session } = useSession();
+
+  if (!session?.user || session.user.emailVerified) {
+    return null;
+  }
+
+  return (
+    <div className="bg-yellow-50 border border-yellow-200 rounded p-4">
+      <p className="text-yellow-800">
+        Please verify your email address. Check your inbox for a verification link.
+      </p>
+      <VerifyEmailButton />
+    </div>
+  );
+}
+```
+
+## Advanced Configuration
+
+### Require Email Verification for Sign-In
+
+Prevent unverified users from signing in:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  emailAndPassword: {
+    enabled: true,
+    requireEmailVerification: true, // Prevent sign-in until verified
+  },
+  emailVerification: {
+    sendVerificationEmail: async ({ user, url }) => {
+      await sendEmail({ to: user.email, url });
+    },
+    sendOnSignUp: true,
+    sendOnSignIn: false, // Don't send on every sign-in attempt
+  },
+});
+```
+
+### Custom Token Expiration
+
+Adjust how long verification links remain valid:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  emailVerification: {
+    sendVerificationEmail: async ({ user, url }) => {
+      await sendEmail({ to: user.email, url });
+    },
+    expiresIn: 60 * 60 * 24, // 24 hours (in seconds)
+  },
+});
+```
+
+### Verification Hooks
+
+Execute custom logic before and after email verification:
+
+```ts title="auth.ts"
+import { APIError } from "better-auth/api";
+
+export const auth = betterAuth({
+  emailVerification: {
+    sendVerificationEmail: async ({ user, url }) => {
+      await sendEmail({ to: user.email, url });
+    },
+    
+    // Before verification is marked as complete
+    beforeEmailVerification: async (user, request) => {
+      console.log(`Verifying email for user ${user.id}`);
+      // Check additional conditions
+      if (await isUserBanned(user.id)) {
+        throw new APIError("FORBIDDEN", { message: "Account suspended" });
+      }
+    },
+    
+    // After email is marked as verified
+    afterEmailVerification: async (user, request) => {
+      console.log(`Email verified for user ${user.id}`);
+      // Send welcome email
+      await sendWelcomeEmail(user.email);
+      // Track analytics
+      await trackEvent("email_verified", { userId: user.id });
+    },
+  },
+});
+```
+
+## Email Change Verification
+
+Better Auth supports a secure two-step email change process:
+
+<Steps>
+<Step>
+### Configure Email Change
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  user: {
+    changeEmail: {
+      enabled: true,
+      
+      // Send confirmation to old email
+      sendChangeEmailConfirmation: async ({ user, newEmail, url }, request) => {
+        await sendEmail({
+          to: user.email,
+          subject: "Confirm email change",
+          html: `
+            <h1>Email Change Request</h1>
+            <p>You requested to change your email to ${newEmail}.</p>
+            <p>Click the link below to confirm this change:</p>
+            <a href="${url}">Confirm Email Change</a>
+          `,
+        });
+      },
+      
+      // Update without verification if email isn't verified yet
+      updateEmailWithoutVerification: false,
+    },
+  },
+  emailVerification: {
+    sendVerificationEmail: async ({ user, url }) => {
+      // This will be sent to the NEW email after confirmation
+      await sendEmail({
+        to: user.email,
+        subject: "Verify your new email",
+        html: `<a href="${url}">Verify New Email</a>`,
+      });
+    },
+  },
+});
+```
+</Step>
+
+<Step>
+### Two-Step Verification Flow
+
+The email change process works as follows:
+
+1. User requests email change from `user@old.com` to `user@new.com`
+2. Confirmation email sent to `user@old.com`
+3. User clicks confirmation link in old email
+4. Verification email sent to `user@new.com`
+5. User clicks verification link in new email
+6. Email is updated and marked as verified
+</Step>
+</Steps>
+
+## Email Templates
+
+Create reusable email templates for consistency. For a simple approach, use template strings:
+
+```ts title="email-templates.ts"
+export function verificationEmailTemplate({
+  verificationUrl,
+  appName,
+}: {
+  verificationUrl: string;
+  appName: string;
+}) {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <body style="font-family: Arial, sans-serif; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto;">
+          <h1>Welcome to ${appName}!</h1>
+          <p>Thank you for signing up. Please verify your email address to get started.</p>
+          <div style="margin: 30px 0;">
+            <a
+              href="${verificationUrl}"
+              style="
+                background-color: #0070f3;
+                color: white;
+                padding: 12px 24px;
+                text-decoration: none;
+                border-radius: 5px;
+                display: inline-block;
+              "
+            >
+              Verify Email Address
+            </a>
+          </div>
+          <p style="color: #666; font-size: 14px;">
+            This link will expire in 1 hour. If you didn't create an account, you can safely ignore this email.
+          </p>
+        </div>
+      </body>
+    </html>
+  `;
+}
+```
+
+```ts title="auth.ts"
+import { verificationEmailTemplate } from "./email-templates";
+
+export const auth = betterAuth({
+  emailVerification: {
+    sendVerificationEmail: async ({ user, url }) => {
+      const html = verificationEmailTemplate({
+        verificationUrl: url,
+        appName: "My App",
+      });
+      
+      await sendEmail({
+        to: user.email,
+        subject: "Verify your email address",
+        html,
+      });
+    },
+  },
+});
+```
+
+## Handling Verification Errors
+
+### Client-Side Error Handling
+
+Handle verification errors gracefully:
+
+```tsx title="pages/verify-email.tsx"
+import { useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+
+export default function VerifyEmailPage() {
+  const searchParams = useSearchParams();
+  const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const errorParam = searchParams.get("error");
+    
+    if (errorParam) {
+      setStatus("error");
+      
+      switch (errorParam) {
+        case "token_expired":
+          setError("Your verification link has expired. Please request a new one.");
+          break;
+        case "invalid_token":
+          setError("Invalid verification link. Please request a new one.");
+          break;
+        case "user_not_found":
+          setError("User not found. Please sign up again.");
+          break;
+        default:
+          setError("An error occurred during verification.");
+      }
+    } else {
+      setStatus("success");
+    }
+  }, [searchParams]);
+
+  if (status === "loading") {
+    return <div>Verifying your email...</div>;
+  }
+
+  if (status === "error") {
+    return (
+      <div>
+        <h1>Verification Failed</h1>
+        <p>{error}</p>
+        <button onClick={() => window.location.href = "/resend-verification"}>
+          Request New Link
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h1>Email Verified!</h1>
+      <p>Your email has been successfully verified.</p>
+      <a href="/dashboard">Go to Dashboard</a>
+    </div>
+  );
+}
+```
+
+## Testing Email Verification
+
+During development, use a test email service:
+
+```ts title="email.ts (Development)"
+export async function sendEmail({
+  to,
+  subject,
+  html,
+}: {
+  to: string;
+  subject: string;
+  html: string;
+}) {
+  if (process.env.NODE_ENV === "development") {
+    // Log to console in development
+    console.log("\n📧 Email sent:");
+    console.log("To:", to);
+    console.log("Subject:", subject);
+    console.log("HTML:", html);
+    console.log("\n");
+    return;
+  }
+  
+  // Use real email service in production
+  await sendRealEmail({ to, subject, html });
+}
+```
+
+Or use services like [MailTrap](https://mailtrap.io/) or [Ethereal Email](https://ethereal.email/) for testing.
+
+## Security Best Practices
+
+1. **Use HTTPS**: Always use HTTPS in production to protect verification tokens
+2. **Short expiration**: Keep token expiration times reasonable (1-24 hours)
+3. **Single use**: Tokens are automatically invalidated after use
+4. **Rate limiting**: Implement rate limiting on verification endpoints (see [Rate Limiting guide](/docs/guides/rate-limiting))
+5. **Secure tokens**: Better Auth uses JWT with HMAC-SHA256 for secure tokens
+
+## Troubleshooting
+
+### Emails Not Sending
+
+1. Check your email service credentials
+2. Verify environment variables are set
+3. Check spam folder
+4. Review email service logs
+5. Ensure `sendVerificationEmail` is properly configured
+
+### Verification Links Expiring Too Fast
+
+Increase the `expiresIn` value:
+
+```ts
+emailVerification: {
+  expiresIn: 60 * 60 * 24, // 24 hours instead of 1 hour
+}
+```
+
+### Users Not Receiving Emails
+
+1. Verify the email address is correct
+2. Check email service rate limits
+3. Review SPF/DKIM configuration
+4. Test with a different email provider
+
+## Next Steps
+
+<Cards>
+  <Card href="/docs/guides/password-reset" title="Password Reset" description="Implement secure password reset flows" />
+  <Card href="/docs/guides/custom-fields" title="Custom Fields" description="Add custom fields to your user model" />
+  <Card href="/docs/authentication/email-password" title="Email/Password Auth" description="Learn more about email/password authentication" />
+</Cards>

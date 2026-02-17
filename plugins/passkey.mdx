@@ -1,0 +1,732 @@
+---
+title: Passkey
+description: Implement passwordless authentication using WebAuthn and passkeys
+---
+
+The Passkey plugin enables passwordless authentication using WebAuthn, allowing users to sign in with biometrics (fingerprint, face recognition) or hardware security keys. This provides a more secure and user-friendly alternative to traditional passwords.
+
+## Use Cases
+
+- **Passwordless authentication**: Eliminate passwords entirely for better security
+- **Multi-factor authentication**: Use passkeys as a second factor
+- **Biometric login**: Enable fingerprint or face recognition
+- **Hardware security keys**: Support YubiKey, Google Titan, and other FIDO2 devices
+- **Cross-platform authentication**: Share passkeys across devices via cloud sync
+- **Platform authentication**: Device-specific passkeys for enhanced security
+
+## Installation
+
+<Steps>
+
+<Step title="Install the passkey package">
+
+```bash
+npm install @better-auth/passkey
+# or
+pnpm add @better-auth/passkey
+# or
+yarn add @better-auth/passkey
+```
+
+</Step>
+
+<Step title="Add the plugin to your auth configuration">
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth";
+import { passkey } from "@better-auth/passkey";
+
+export const auth = betterAuth({
+  // ... other config
+  plugins: [
+    passkey({
+      rpID: "example.com", // Your domain
+      rpName: "My App", // Your app name
+      origin: "https://example.com", // Your app URL
+    })
+  ]
+});
+```
+
+</Step>
+
+<Step title="Add the client plugin">
+
+```ts title="client.ts"
+import { createAuthClient } from "better-auth/client";
+import { passkeyClient } from "@better-auth/passkey/client";
+
+export const client = createAuthClient({
+  plugins: [
+    passkeyClient()
+  ]
+});
+```
+
+</Step>
+
+<Step title="Run migration">
+
+The plugin creates a `passkey` table to store passkey credentials.
+
+```bash
+npx better-auth migrate
+```
+
+</Step>
+
+</Steps>
+
+## Configuration Options
+
+### Server Configuration
+
+<ParamField path="rpID" type="string" default="'localhost'">
+  Relying Party ID - a unique identifier for your website. Must be your domain name without protocol or port.
+  
+  ```ts
+  passkey({
+    rpID: "example.com" // Valid
+    // rpID: "https://example.com" // Invalid - no protocol
+    // rpID: "example.com:3000" // Invalid - no port
+  })
+  ```
+  
+  For local development, `"localhost"` is valid.
+</ParamField>
+
+<ParamField path="rpName" type="string" default="'Better Auth'">
+  Human-readable name for your website, shown to users during registration.
+  
+  ```ts
+  passkey({
+    rpName: "My Awesome App"
+  })
+  ```
+</ParamField>
+
+<ParamField path="origin" type="string | string[] | null" optional>
+  The URL where registrations and authentications occur. Must include protocol but no trailing slash.
+  
+  ```ts
+  passkey({
+    origin: "https://example.com" // Production
+    // origin: "http://localhost:3000" // Development
+    // origin: ["https://example.com", "https://staging.example.com"] // Multiple origins
+  })
+  ```
+  
+  If not provided, the origin is extracted from the request headers.
+</ParamField>
+
+<ParamField path="authenticatorSelection" type="AuthenticatorSelectionCriteria" optional>
+  Customize authenticator selection during passkey registration.
+  
+  ```ts
+  passkey({
+    authenticatorSelection: {
+      authenticatorAttachment: "platform", // "platform" | "cross-platform"
+      requireResidentKey: false,
+      residentKey: "preferred", // "discouraged" | "preferred" | "required"
+      userVerification: "preferred" // "discouraged" | "preferred" | "required"
+    }
+  })
+  ```
+  
+  <ParamField path="authenticatorAttachment" type="'platform' | 'cross-platform'" optional>
+    - `"platform"`: Device-specific (e.g., Touch ID, Windows Hello)
+    - `"cross-platform"`: Portable (e.g., USB security keys)
+  </ParamField>
+  
+  <ParamField path="residentKey" type="'discouraged' | 'preferred' | 'required'" optional>
+    Whether to create a discoverable credential (resident key).
+  </ParamField>
+  
+  <ParamField path="userVerification" type="'discouraged' | 'preferred' | 'required'" optional>
+    Level of user verification required (biometric, PIN, etc.).
+  </ParamField>
+</ParamField>
+
+<ParamField path="advanced" type="object" optional>
+  Advanced configuration options.
+  
+  <ParamField path="advanced.webAuthnChallengeCookie" type="string" default="'better-auth-passkey'">
+    Cookie name for storing the WebAuthn challenge during authentication flow.
+    
+    ```ts
+    passkey({
+      advanced: {
+        webAuthnChallengeCookie: "my-app-passkey-challenge"
+      }
+    })
+    ```
+  </ParamField>
+</ParamField>
+
+<ParamField path="schema" type="object" optional>
+  Custom schema configuration for the passkey table.
+  
+  ```ts
+  passkey({
+    schema: {
+      passkey: {
+        fields: {
+          name: "passkey_name", // Rename field
+          // ... other field mappings
+        }
+      }
+    }
+  })
+  ```
+</ParamField>
+
+## Usage Examples
+
+### Client-Side
+
+<CodeGroup>
+
+```tsx title="React"
+import { useState } from "react";
+import { client } from "./client";
+
+function PasskeyAuth() {
+  const [error, setError] = useState("");
+  
+  const registerPasskey = async () => {
+    const { data, error } = await client.passkey.addPasskey({
+      name: "My Laptop",
+      authenticatorAttachment: "platform"
+    });
+    
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    
+    console.log("Passkey registered:", data);
+  };
+  
+  const signInWithPasskey = async () => {
+    const { data, error } = await client.signIn.passkey();
+    
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    
+    console.log("Signed in:", data.user);
+  };
+  
+  const signInWithAutoFill = async () => {
+    // Shows passkey options in autofill UI
+    const { data, error } = await client.signIn.passkey({
+      autoFill: true
+    });
+  };
+  
+  return (
+    <div>
+      <button onClick={registerPasskey}>Register Passkey</button>
+      <button onClick={signInWithPasskey}>Sign In with Passkey</button>
+      <button onClick={signInWithAutoFill}>Sign In (AutoFill)</button>
+      {error && <p style={{ color: "red" }}>{error}</p>}
+    </div>
+  );
+}
+```
+
+```vue title="Vue"
+<script setup>
+import { ref } from 'vue'
+import { client } from './client'
+
+const error = ref('')
+
+const registerPasskey = async () => {
+  const { data, error: err } = await client.passkey.addPasskey({
+    name: 'My Laptop',
+    authenticatorAttachment: 'platform'
+  })
+  
+  if (err) {
+    error.value = err.message
+    return
+  }
+  
+  console.log('Passkey registered:', data)
+}
+
+const signInWithPasskey = async () => {
+  const { data, error: err } = await client.signIn.passkey()
+  
+  if (err) {
+    error.value = err.message
+    return
+  }
+  
+  console.log('Signed in:', data.user)
+}
+</script>
+
+<template>
+  <div>
+    <button @click="registerPasskey">Register Passkey</button>
+    <button @click="signInWithPasskey">Sign In with Passkey</button>
+    <p v-if="error" style="color: red">{{ error }}</p>
+  </div>
+</template>
+```
+
+```svelte title="Svelte"
+<script>
+import { client } from './client'
+
+let error = ''
+
+async function registerPasskey() {
+  const { data, error: err } = await client.passkey.addPasskey({
+    name: 'My Laptop',
+    authenticatorAttachment: 'platform'
+  })
+  
+  if (err) {
+    error = err.message
+    return
+  }
+  
+  console.log('Passkey registered:', data)
+}
+
+async function signInWithPasskey() {
+  const { data, error: err } = await client.signIn.passkey()
+  
+  if (err) {
+    error = err.message
+    return
+  }
+  
+  console.log('Signed in:', data.user)
+}
+</script>
+
+<button on:click={registerPasskey}>Register Passkey</button>
+<button on:click={signInWithPasskey}>Sign In with Passkey</button>
+{#if error}
+  <p style="color: red">{error}</p>
+{/if}
+```
+
+</CodeGroup>
+
+### Passkey Management
+
+```tsx title="PasskeyManager.tsx"
+import { useStore } from "@nanostores/react";
+import { client } from "./client";
+
+function PasskeyManager() {
+  // List all passkeys for the current user
+  const passkeys = useStore(client.listPasskeys);
+  
+  const deletePasskey = async (id: string) => {
+    const { error } = await client.passkey.deletePasskey({ id });
+    
+    if (error) {
+      console.error("Failed to delete passkey:", error);
+    }
+  };
+  
+  const updatePasskeyName = async (id: string, name: string) => {
+    const { data, error } = await client.passkey.updatePasskey({ id, name });
+    
+    if (error) {
+      console.error("Failed to update passkey:", error);
+      return;
+    }
+    
+    console.log("Updated passkey:", data.passkey);
+  };
+  
+  return (
+    <div>
+      <h2>Your Passkeys</h2>
+      {passkeys.data?.map((passkey) => (
+        <div key={passkey.id}>
+          <p>
+            <strong>{passkey.name || "Unnamed Passkey"}</strong>
+          </p>
+          <p>Device: {passkey.deviceType}</p>
+          <p>Created: {new Date(passkey.createdAt).toLocaleDateString()}</p>
+          <button onClick={() => updatePasskeyName(passkey.id, "New Name")}>
+            Rename
+          </button>
+          <button onClick={() => deletePasskey(passkey.id)}>
+            Delete
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+### Cross-Platform vs Platform Passkeys
+
+```tsx
+// Platform passkey (device-specific, e.g., Touch ID)
+const registerPlatformPasskey = async () => {
+  await client.passkey.addPasskey({
+    name: "MacBook Touch ID",
+    authenticatorAttachment: "platform"
+  });
+};
+
+// Cross-platform passkey (portable, e.g., USB key)
+const registerCrossPlatformPasskey = async () => {
+  await client.passkey.addPasskey({
+    name: "YubiKey",
+    authenticatorAttachment: "cross-platform"
+  });
+};
+```
+
+### Auto-Register After Sign-In
+
+```tsx
+// Silently register a passkey after successful sign-in
+const signInAndRegisterPasskey = async () => {
+  // First, sign in with email/password
+  await client.signIn.email({
+    email: "user@example.com",
+    password: "password"
+  });
+  
+  // Then, auto-register a passkey
+  await client.passkey.addPasskey({
+    useAutoRegister: true // Silently create passkey
+  });
+};
+```
+
+### Server-Side
+
+You can access passkey endpoints on the server:
+
+```ts title="api/passkeys.ts"
+import { auth } from "./auth";
+
+export async function GET(request: Request) {
+  const session = await auth.api.getSession({
+    headers: request.headers
+  });
+  
+  if (!session) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+  
+  // List user's passkeys
+  const passkeys = await auth.api.listPasskeys({
+    headers: request.headers
+  });
+  
+  return Response.json(passkeys);
+}
+
+export async function DELETE(request: Request) {
+  const { id } = await request.json();
+  
+  // Delete a passkey
+  const result = await auth.api.deletePasskey({
+    body: { id },
+    headers: request.headers
+  });
+  
+  return Response.json(result);
+}
+```
+
+## API Reference
+
+### Client Methods
+
+#### `client.passkey.addPasskey(options?)`
+
+Register a new passkey for the current user.
+
+```ts
+const { data, error } = await client.passkey.addPasskey({
+  name: "My Device",
+  authenticatorAttachment: "platform",
+  useAutoRegister: false
+});
+```
+
+**Parameters:**
+- `name` (optional): Display name for the passkey
+- `authenticatorAttachment` (optional): `"platform"` or `"cross-platform"`
+- `useAutoRegister` (optional): Silently create passkey without user prompt
+
+**Returns:**
+- `data`: Passkey object
+- `error`: Error object if registration fails
+
+**Error Codes:**
+- `ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED`: Passkey already registered
+- `ERROR_CEREMONY_ABORTED`: User cancelled registration
+
+#### `client.signIn.passkey(options?)`
+
+Sign in using a registered passkey.
+
+```ts
+const { data, error } = await client.signIn.passkey({
+  autoFill: false
+});
+```
+
+**Parameters:**
+- `autoFill` (optional): Show passkeys in autofill UI
+
+**Returns:**
+- `data.user`: User object
+- `data.session`: Session object
+- `error`: Error object if authentication fails
+
+#### `client.listPasskeys`
+
+Reactive store containing the user's passkeys.
+
+```tsx
+import { useStore } from "@nanostores/react";
+
+const passkeys = useStore(client.listPasskeys);
+
+console.log(passkeys.data); // Array of passkey objects
+console.log(passkeys.loading); // Loading state
+console.log(passkeys.error); // Error if any
+```
+
+#### `client.passkey.deletePasskey(options)`
+
+Delete a specific passkey.
+
+```ts
+const { data, error } = await client.passkey.deletePasskey({
+  id: "passkey-id"
+});
+```
+
+**Parameters:**
+- `id` (required): Passkey ID to delete
+
+**Returns:**
+- `data.status`: Boolean indicating success
+- `error`: Error object if deletion fails
+
+#### `client.passkey.updatePasskey(options)`
+
+Update a passkey's name.
+
+```ts
+const { data, error } = await client.passkey.updatePasskey({
+  id: "passkey-id",
+  name: "New Name"
+});
+```
+
+**Parameters:**
+- `id` (required): Passkey ID to update
+- `name` (required): New name for the passkey
+
+**Returns:**
+- `data.passkey`: Updated passkey object
+- `error`: Error object if update fails
+
+### Server Methods
+
+#### `auth.api.listPasskeys(context)`
+
+List all passkeys for the authenticated user.
+
+```ts
+const passkeys = await auth.api.listPasskeys({
+  headers: request.headers
+});
+```
+
+#### `auth.api.deletePasskey(context)`
+
+Delete a specific passkey.
+
+```ts
+const result = await auth.api.deletePasskey({
+  body: { id: "passkey-id" },
+  headers: request.headers
+});
+```
+
+#### `auth.api.updatePasskey(context)`
+
+Update a passkey's name.
+
+```ts
+const result = await auth.api.updatePasskey({
+  body: { id: "passkey-id", name: "New Name" },
+  headers: request.headers
+});
+```
+
+### Server Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/passkey/generate-register-options` | GET | Generate options for passkey registration |
+| `/passkey/verify-registration` | POST | Verify passkey registration |
+| `/passkey/generate-authenticate-options` | GET | Generate options for passkey authentication |
+| `/passkey/verify-authentication` | POST | Verify passkey authentication |
+| `/passkey/list-user-passkeys` | GET | List user's passkeys |
+| `/passkey/delete-passkey` | POST | Delete a passkey |
+| `/passkey/update-passkey` | POST | Update a passkey |
+
+## Database Schema
+
+The plugin creates a `passkey` table with the following fields:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | `string` | Yes | Unique passkey ID |
+| `name` | `string` | No | User-provided name for the passkey |
+| `publicKey` | `string` | Yes | Public key for verification |
+| `userId` | `string` | Yes | Reference to user ID |
+| `credentialID` | `string` | Yes | WebAuthn credential ID |
+| `counter` | `number` | Yes | Signature counter for replay protection |
+| `deviceType` | `string` | Yes | `"singleDevice"` or `"multiDevice"` |
+| `backedUp` | `boolean` | Yes | Whether credential is backed up |
+| `transports` | `string` | No | Comma-separated transport methods |
+| `createdAt` | `date` | No | Creation timestamp |
+| `aaguid` | `string` | No | Authenticator attestation GUID |
+
+## Browser Support
+
+Passkeys use WebAuthn, which is supported in:
+
+- Chrome/Edge 67+
+- Firefox 60+
+- Safari 13+
+- Opera 54+
+
+**Platform Support:**
+- **iOS/iPadOS 16+**: Touch ID, Face ID
+- **Android 9+**: Fingerprint, face unlock
+- **macOS**: Touch ID
+- **Windows 10+**: Windows Hello
+- **Hardware keys**: YubiKey, Google Titan, etc.
+
+<Note>
+Always provide a fallback authentication method (email/password) for users on unsupported browsers.
+</Note>
+
+## Error Codes
+
+The plugin defines the following error codes:
+
+| Code | Description |
+|------|-------------|
+| `CHALLENGE_NOT_FOUND` | Challenge not found or expired |
+| `YOU_ARE_NOT_ALLOWED_TO_REGISTER_THIS_PASSKEY` | User not authorized for this operation |
+| `FAILED_TO_VERIFY_REGISTRATION` | Passkey registration verification failed |
+| `PASSKEY_NOT_FOUND` | Passkey not found |
+| `AUTHENTICATION_FAILED` | Passkey authentication failed |
+| `UNABLE_TO_CREATE_SESSION` | Failed to create session |
+| `FAILED_TO_UPDATE_PASSKEY` | Failed to update passkey |
+
+## Security Considerations
+
+<Warning>
+**Important security practices:**
+
+1. **rpID must match your domain**: The `rpID` must be your actual domain without protocol or port
+2. **Origin validation**: Always validate the origin matches your expected URL
+3. **HTTPS required**: Passkeys only work over HTTPS (except localhost for development)
+4. **Challenge expiration**: Challenges expire after 5 minutes
+5. **Counter verification**: The plugin automatically verifies signature counters to prevent replay attacks
+</Warning>
+
+## Best Practices
+
+1. **Allow users to register multiple passkeys**: Users may have multiple devices
+2. **Provide passkey management UI**: Let users view, rename, and delete their passkeys
+3. **Offer fallback authentication**: Always provide email/password as a fallback
+4. **Use descriptive names**: Encourage users to name their passkeys (e.g., "iPhone", "YubiKey")
+5. **Support both platform and cross-platform**: Give users flexibility in their authentication method
+6. **Test on multiple devices**: Ensure your implementation works across browsers and platforms
+
+## Source Code Reference
+
+The passkey plugin uses the SimpleWebAuthn library:
+
+```ts title="packages/passkey/src/routes.ts" showLineNumbers {39-239}
+import { createAuthEndpoint } from "@better-auth/core/api";
+import {
+  generateRegistrationOptions,
+  generateAuthenticationOptions,
+  verifyRegistrationResponse,
+  verifyAuthenticationResponse
+} from "@simplewebauthn/server";
+
+export const generatePasskeyRegistrationOptions = (opts) =>
+  createAuthEndpoint(
+    "/passkey/generate-register-options",
+    { method: "GET" },
+    async (ctx) => {
+      const { session } = ctx.context;
+      
+      // Get user's existing passkeys to exclude
+      const userPasskeys = await ctx.context.adapter.findMany({
+        model: "passkey",
+        where: [{ field: "userId", value: session.user.id }]
+      });
+      
+      // Generate registration options
+      const options = await generateRegistrationOptions({
+        rpName: opts.rpName || ctx.context.appName,
+        rpID: getRpID(opts, ctx.context.options.baseURL),
+        userID: new TextEncoder().encode(generateRandomString(32)),
+        userName: session.user.email || session.user.id,
+        userDisplayName: session.user.email || session.user.id,
+        attestationType: "none",
+        excludeCredentials: userPasskeys.map(pk => ({
+          id: pk.credentialID,
+          transports: pk.transports?.split(",")
+        })),
+        authenticatorSelection: {
+          residentKey: "preferred",
+          userVerification: "preferred",
+          ...opts.authenticatorSelection
+        }
+      });
+      
+      // Store challenge for verification
+      await ctx.context.internalAdapter.createVerificationValue({
+        identifier: verificationToken,
+        value: JSON.stringify({ expectedChallenge: options.challenge }),
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000)
+      });
+      
+      return ctx.json(options);
+    }
+  );
+```
+
+<Note>
+The code above is simplified for documentation. See the full implementation in `packages/passkey/src/` for complete details including authentication verification and error handling.
+</Note>
+
+## Resources
+
+- [WebAuthn Guide](https://webauthn.guide/)
+- [SimpleWebAuthn Documentation](https://simplewebauthn.dev/)
+- [Passkeys.dev](https://passkeys.dev/)
+- [FIDO Alliance](https://fidoalliance.org/)
+- [WebAuthn Spec](https://www.w3.org/TR/webauthn-2/)

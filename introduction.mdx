@@ -1,0 +1,185 @@
+---
+title: Better Auth
+description: The most comprehensive authentication framework for TypeScript
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/banner.png"
+  alt="Better Auth Banner"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/banner-dark.png"
+  alt="Better Auth Banner"
+/>
+
+## Welcome to Better Auth
+
+Better Auth is a framework-agnostic authentication (and authorization) library for TypeScript. It provides a comprehensive set of features out of the box and includes a plugin ecosystem that simplifies adding advanced functionalities with minimal code in a short amount of time.
+
+<CardGroup cols={2}>
+  <Card
+    title="Quick Start"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Get started with Better Auth in under 5 minutes
+  </Card>
+  <Card
+    title="Installation"
+    icon="download"
+    href="/installation"
+  >
+    Install Better Auth in your project
+  </Card>
+  <Card
+    title="Core Concepts"
+    icon="book"
+    href="/concepts/architecture"
+  >
+    Learn about Better Auth's architecture and design
+  </Card>
+  <Card
+    title="API Reference"
+    icon="code"
+    href="/api/server/better-auth"
+  >
+    Explore the complete API documentation
+  </Card>
+</CardGroup>
+
+## Why Better Auth?
+
+Authentication in the TypeScript ecosystem is a half-solved problem. Other open-source libraries often require a lot of additional code for anything beyond basic authentication. Rather than just pushing third-party services as the solution, Better Auth provides a comprehensive framework that lets you focus on building your actual application instead of reinventing the wheel.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Framework Agnostic" icon="layer-group">
+    Works seamlessly with Next.js, SvelteKit, Solid Start, TanStack Start, Node.js, and more
+  </Card>
+  <Card title="Multiple Authentication Methods" icon="key">
+    Email/password, social providers, magic links, passkeys, 2FA, and anonymous authentication
+  </Card>
+  <Card title="Database Flexibility" icon="database">
+    Built-in adapters for Prisma, Drizzle, Kysely, and MongoDB
+  </Card>
+  <Card title="Rich Plugin Ecosystem" icon="puzzle-piece">
+    Extend functionality with plugins for organizations, admin panels, access control, and more
+  </Card>
+  <Card title="Type-Safe" icon="shield-check">
+    Full TypeScript support with end-to-end type inference
+  </Card>
+  <Card title="Production Ready" icon="check-circle">
+    Built with security best practices, rate limiting, and session management
+  </Card>
+</CardGroup>
+
+## Authentication Methods
+
+Better Auth supports a wide range of authentication methods out of the box:
+
+<CardGroup cols={3}>
+  <Card title="Email & Password" icon="envelope" href="/authentication/email-password">
+    Traditional credential-based authentication
+  </Card>
+  <Card title="Social Providers" icon="share-nodes" href="/authentication/social-providers">
+    OAuth integration with 50+ providers
+  </Card>
+  <Card title="Magic Links" icon="wand-magic-sparkles" href="/authentication/magic-link">
+    Passwordless authentication via email
+  </Card>
+  <Card title="Passkeys" icon="fingerprint" href="/authentication/passkey">
+    Modern WebAuthn-based authentication
+  </Card>
+  <Card title="Two-Factor Auth" icon="lock" href="/authentication/two-factor">
+    TOTP and backup codes for enhanced security
+  </Card>
+  <Card title="Anonymous" icon="user-secret" href="/authentication/anonymous">
+    Allow users to explore before signing up
+  </Card>
+</CardGroup>
+
+## Framework Support
+
+Better Auth integrates seamlessly with popular frameworks:
+
+<CardGroup cols={2}>
+  <Card title="Next.js" icon="react" href="/integrations/nextjs">
+    Full support for App Router and Pages Router
+  </Card>
+  <Card title="SvelteKit" icon="code" href="/integrations/sveltekit">
+    Native integration with SvelteKit
+  </Card>
+  <Card title="Solid Start" icon="code" href="/integrations/solid-start">
+    First-class support for Solid Start
+  </Card>
+  <Card title="TanStack Start" icon="code" href="/integrations/tanstack-start">
+    Works with TanStack Start
+  </Card>
+  <Card title="Node.js" icon="node-js" href="/integrations/node">
+    Pure Node.js and Express integration
+  </Card>
+  <Card title="Vanilla" icon="js" href="/client/vanilla">
+    Use with any JavaScript framework
+  </Card>
+</CardGroup>
+
+## Popular Plugins
+
+<CardGroup cols={2}>
+  <Card title="Organizations" icon="building" href="/plugins/organization">
+    Multi-tenancy with team management
+  </Card>
+  <Card title="Admin Panel" icon="user-shield" href="/plugins/admin">
+    User management and admin operations
+  </Card>
+  <Card title="Access Control" icon="shield-halved" href="/plugins/access-control">
+    Role-based access control (RBAC)
+  </Card>
+  <Card title="OAuth Provider" icon="share-alt" href="/plugins/oidc-provider">
+    Turn your app into an OAuth provider
+  </Card>
+</CardGroup>
+
+## Community and Support
+
+Better Auth is free and open source, licensed under the MIT License.
+
+<CardGroup cols={3}>
+  <Card title="GitHub" icon="github" href="https://github.com/better-auth/better-auth">
+    Star the project and contribute
+  </Card>
+  <Card title="Discord" icon="discord" href="https://discord.gg/better-auth">
+    Join our community
+  </Card>
+  <Card title="Documentation" icon="book" href="https://better-auth.com">
+    Comprehensive guides and tutorials
+  </Card>
+</CardGroup>
+
+## Getting Started
+
+Ready to add authentication to your app? Follow our quickstart guide:
+
+<Steps>
+  <Step title="Install Better Auth">
+    ```bash
+    npm install better-auth
+    ```
+  </Step>
+  <Step title="Configure your auth instance">
+    Create an `auth.ts` file with your configuration
+  </Step>
+  <Step title="Set up your client">
+    Initialize the auth client in your frontend
+  </Step>
+  <Step title="Start authenticating">
+    Add sign-in and sign-up to your application
+  </Step>
+</Steps>
+
+<Card title="Next: Installation" icon="arrow-right" href="/installation">
+  Learn how to install and set up Better Auth in your project
+</Card>

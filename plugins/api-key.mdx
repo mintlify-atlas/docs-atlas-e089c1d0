@@ -1,0 +1,601 @@
+---
+title: "API Key"
+description: "Generate, manage, and authenticate with API keys for programmatic access"
+icon: "key"
+---
+
+## Overview
+
+The API Key plugin enables authentication using API keys instead of session cookies, perfect for server-to-server communication, CLI tools, mobile apps, and programmatic access to your API.
+
+API keys can include rate limiting, expiration, usage tracking, and custom permissions.
+
+## Use Cases
+
+- **Server-to-server authentication**: Backend services calling your API
+- **CLI tools**: Command-line applications requiring authentication
+- **Mobile apps**: Native applications with persistent tokens
+- **Webhooks**: Authenticating incoming webhook requests
+- **Third-party integrations**: Providing API access to partners
+- **Development tools**: Testing and automation scripts
+
+## Installation
+
+```bash
+npm install better-auth
+```
+
+## Configuration
+
+### Server Setup
+
+From `packages/better-auth/src/plugins/api-key/index.ts:62`:
+
+```typescript
+import { betterAuth } from "better-auth"
+import { apiKey } from "better-auth/plugins"
+
+const auth = betterAuth({
+  plugins: [
+    apiKey({
+      // Header to check for API key
+      apiKeyHeaders: "x-api-key",  // Default: "x-api-key"
+      // Or multiple headers: ["x-api-key", "authorization"]
+      
+      // Key length (excluding prefix)
+      defaultKeyLength: 64,  // Default: 64
+      
+      // Require a name for API keys
+      requireName: false,  // Default: false
+      
+      // Enable metadata storage
+      enableMetadata: true,  // Default: false
+      
+      // Disable key hashing (NOT recommended)
+      disableKeyHashing: false,  // Default: false
+      
+      // Custom key generator
+      customKeyGenerator: async ({ length, prefix }) => {
+        return `${prefix}${generateSecureKey(length)}`
+      },
+      
+      // Rate limiting
+      rateLimit: {
+        enabled: true,  // Default: true
+        timeWindow: 1000 * 60 * 60 * 24,  // 1 day
+        maxRequests: 1000  // Max requests per window
+      },
+      
+      // Key expiration
+      keyExpiration: {
+        defaultExpiresIn: null,  // Default: null (no expiration)
+        disableCustomExpiresTime: false,
+        minExpiresIn: 1,  // days
+        maxExpiresIn: 365  // days
+      },
+      
+      // Starting characters config
+      startingCharactersConfig: {
+        shouldStore: true,  // Store first N characters
+        charactersLength: 6  // Default: 6
+      },
+      
+      // Storage backend
+      storage: "database",  // "database" | "secondary-storage"
+      fallbackToDatabase: false,
+      
+      // Enable session-like behavior
+      enableSessionForAPIKeys: false,  // Default: false
+      
+      // Defer non-critical updates
+      deferUpdates: false  // Default: false
+    })
+  ]
+})
+```
+
+### Client Setup
+
+From `packages/better-auth/src/plugins/api-key/client.ts:4`:
+
+```typescript
+import { createAuthClient } from "better-auth/client"
+import { apiKeyClient } from "better-auth/client/plugins"
+
+const authClient = createAuthClient({
+  plugins: [apiKeyClient()]
+})
+```
+
+### Database Schema
+
+From `packages/better-auth/src/plugins/api-key/types.ts:277`:
+
+The plugin adds an `apikey` table with these fields:
+
+```typescript
+{
+  id: string
+  name: string | null
+  key: string                    // Hashed API key
+  prefix: string | null
+  start: string | null          // First N characters (for display)
+  userId: string
+  enabled: boolean              // Enable/disable key
+  expiresAt: Date | null
+  createdAt: Date
+  updatedAt: Date
+  
+  // Rate limiting
+  rateLimitEnabled: boolean
+  rateLimitTimeWindow: number | null
+  rateLimitMax: number | null
+  requestCount: number
+  lastRequest: Date | null
+  
+  // Usage limits
+  remaining: number | null      // Remaining uses
+  refillInterval: number | null
+  refillAmount: number | null
+  lastRefillAt: Date | null
+  
+  // Additional data
+  metadata: Record<string, any> | null
+  permissions: Record<string, string[]> | null
+}
+```
+
+## API Methods
+
+### Create API Key
+
+Generate a new API key for the authenticated user.
+
+**Endpoint:** `POST /api-key/create`
+
+From `packages/better-auth/src/plugins/api-key/index.ts:250`:
+
+```typescript
+// Client usage
+const apiKey = await authClient.apiKey.create({
+  name: "Production API Key",
+  expiresInDays: 90,
+  prefix: "prod_",
+  metadata: {
+    environment: "production",
+    createdBy: "admin"
+  }
+})
+
+// Server usage
+const apiKey = await auth.api.createApiKey({
+  body: {
+    name: "Production API Key",
+    expiresInDays: 90,
+    prefix: "prod_"
+  },
+  headers: request.headers  // Must be authenticated
+})
+```
+
+**Request Body:**
+
+- `name` (string, optional/required): Name for the API key (required if `requireName: true`)
+- `prefix` (string, optional): Custom prefix for the key
+- `expiresInDays` (number, optional): Days until expiration
+- `metadata` (object, optional): Custom metadata (requires `enableMetadata: true`)
+- `remaining` (number, optional): Usage limit
+- `refillInterval` (number, optional): Refill interval in milliseconds
+- `refillAmount` (number, optional): Amount to refill
+
+**Response:**
+
+```typescript
+{
+  key: string           // Full API key (only shown once!)
+  id: string
+  name: string | null
+  prefix: string | null
+  start: string | null  // First N characters
+  expiresAt: Date | null
+  createdAt: Date
+}
+```
+
+<Warning>
+**Important**: The full API key is only returned once during creation. Store it securely!
+</Warning>
+
+### Verify API Key
+
+Validate an API key (server-side only).
+
+**Endpoint:** `POST /api-key/verify`
+
+From `packages/better-auth/src/plugins/api-key/index.ts:263`:
+
+```typescript
+// Server only
+const result = await auth.api.verifyApiKey({
+  body: {
+    key: "prod_abc123..."
+  }
+})
+```
+
+**Response:**
+
+```typescript
+{
+  valid: boolean
+  apiKey?: ApiKey    // If valid
+  userId?: string    // If valid
+}
+```
+
+### Get API Key
+
+Retrieve details about a specific API key.
+
+**Endpoint:** `GET /api-key/get?id={keyId}`
+
+From `packages/better-auth/src/plugins/api-key/index.ts:279`:
+
+```typescript
+const apiKey = await authClient.apiKey.get({
+  id: "key_id_here"
+})
+```
+
+### Update API Key
+
+Modify an existing API key.
+
+**Endpoint:** `POST /api-key/update`
+
+From `packages/better-auth/src/plugins/api-key/index.ts:295`:
+
+```typescript
+const updated = await authClient.apiKey.update({
+  id: "key_id_here",
+  name: "Updated Key Name",
+  enabled: false,  // Disable the key
+  metadata: {
+    lastModified: new Date().toISOString()
+  }
+})
+```
+
+### Delete API Key
+
+Remove an API key.
+
+**Endpoint:** `POST /api-key/delete`
+
+From `packages/better-auth/src/plugins/api-key/index.ts:311`:
+
+```typescript
+await authClient.apiKey.delete({
+  id: "key_id_here"
+})
+```
+
+### List API Keys
+
+Get all API keys for the authenticated user.
+
+**Endpoint:** `GET /api-key/list`
+
+From `packages/better-auth/src/plugins/api-key/index.ts:327`:
+
+```typescript
+const keys = await authClient.apiKey.list()
+
+// Returns array of ApiKey objects (without full key)
+```
+
+### Delete Expired Keys
+
+Clean up expired API keys (server-side only).
+
+**Endpoint:** `POST /api-key/delete-all-expired-api-keys`
+
+From `packages/better-auth/src/plugins/api-key/index.ts:340`:
+
+```typescript
+// Server only
+await auth.api.deleteAllExpiredApiKeys()
+```
+
+## Usage Examples
+
+### Using API Keys for Authentication
+
+From `packages/better-auth/src/plugins/api-key/index.ts:136`:
+
+API keys are automatically validated when the plugin detects them in request headers:
+
+```typescript
+// Client making API request
+fetch("https://api.example.com/data", {
+  headers: {
+    "x-api-key": "prod_abc123..."
+  }
+})
+
+// The plugin automatically:
+// 1. Detects the API key in headers
+// 2. Validates and hashes it
+// 3. Checks rate limits and expiration
+// 4. Loads the associated user
+// 5. Creates a session context (if enableSessionForAPIKeys: true)
+```
+
+### Creating API Keys with Limits
+
+```typescript
+import { authClient } from "./auth-client"
+
+async function createLimitedKey() {
+  const apiKey = await authClient.apiKey.create({
+    name: "Trial API Key",
+    prefix: "trial_",
+    expiresInDays: 30,
+    
+    // Usage limit: 1000 requests
+    remaining: 1000,
+    
+    // Refill: 100 requests per day
+    refillInterval: 1000 * 60 * 60 * 24,  // 1 day in ms
+    refillAmount: 100,
+    
+    // Custom metadata
+    metadata: {
+      tier: "trial",
+      features: ["basic"],
+      createdFor: "user@example.com"
+    }
+  })
+  
+  console.log(`API Key created: ${apiKey.key}`)
+  console.log(`Starts with: ${apiKey.start}`)
+  console.log(`Expires: ${apiKey.expiresAt}`)
+  
+  return apiKey
+}
+```
+
+### Managing API Keys UI
+
+```tsx
+import { useState, useEffect } from "react"
+import { authClient } from "./auth-client"
+
+function APIKeyManager() {
+  const [keys, setKeys] = useState([])
+  const [newKey, setNewKey] = useState(null)
+  
+  useEffect(() => {
+    loadKeys()
+  }, [])
+  
+  async function loadKeys() {
+    const apiKeys = await authClient.apiKey.list()
+    setKeys(apiKeys)
+  }
+  
+  async function handleCreate(data) {
+    const key = await authClient.apiKey.create(data)
+    setNewKey(key)  // Show full key once
+    await loadKeys()
+  }
+  
+  async function handleToggle(id, enabled) {
+    await authClient.apiKey.update({ id, enabled: !enabled })
+    await loadKeys()
+  }
+  
+  async function handleDelete(id) {
+    if (confirm("Delete this API key?")) {
+      await authClient.apiKey.delete({ id })
+      await loadKeys()
+    }
+  }
+  
+  return (
+    <div>
+      <h2>API Keys</h2>
+      
+      {newKey && (
+        <div className="alert">
+          <strong>Save this key now!</strong> It won't be shown again.
+          <code>{newKey.key}</code>
+        </div>
+      )}
+      
+      <button onClick={() => handleCreate({
+        name: "New Key",
+        expiresInDays: 90
+      })}>
+        Create New Key
+      </button>
+      
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Key</th>
+            <th>Status</th>
+            <th>Expires</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {keys.map(key => (
+            <tr key={key.id}>
+              <td>{key.name}</td>
+              <td><code>{key.start}...</code></td>
+              <td>{key.enabled ? "Active" : "Disabled"}</td>
+              <td>{key.expiresAt?.toLocaleDateString() || "Never"}</td>
+              <td>
+                <button onClick={() => handleToggle(key.id, key.enabled)}>
+                  {key.enabled ? "Disable" : "Enable"}
+                </button>
+                <button onClick={() => handleDelete(key.id)}>
+                  Delete
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+```
+
+### Rate Limiting with API Keys
+
+From `packages/better-auth/src/plugins/api-key/index.ts:75`:
+
+Rate limiting is enforced automatically:
+
+```typescript
+const auth = betterAuth({
+  plugins: [
+    apiKey({
+      rateLimit: {
+        enabled: true,
+        timeWindow: 1000 * 60 * 60,  // 1 hour
+        maxRequests: 100  // 100 requests per hour
+      }
+    })
+  ]
+})
+
+// When rate limit is exceeded, requests will fail with:
+// Error: RATE_LIMIT_EXCEEDED
+```
+
+### Custom Key Validation
+
+```typescript
+import { apiKey } from "better-auth/plugins"
+import { db } from "./db"
+
+const auth = betterAuth({
+  plugins: [
+    apiKey({
+      customAPIKeyValidator: async ({ ctx, key }) => {
+        // Custom validation logic
+        const blocked = await db.blockedKeys.findUnique({
+          where: { key: key.substring(0, 10) }
+        })
+        
+        if (blocked) {
+          console.log(`Blocked key attempt: ${key.substring(0, 10)}`)
+          return false
+        }
+        
+        return true
+      }
+    })
+  ]
+})
+```
+
+### Storage in Redis
+
+```typescript
+import { apiKey } from "better-auth/plugins"
+import { redis } from "./redis"
+
+const auth = betterAuth({
+  plugins: [
+    apiKey({
+      storage: "secondary-storage",
+      customStorage: {
+        get: async (key) => {
+          const value = await redis.get(key)
+          return value ? JSON.parse(value) : null
+        },
+        set: async (key, value, ttl) => {
+          if (ttl) {
+            await redis.setex(key, ttl, JSON.stringify(value))
+          } else {
+            await redis.set(key, JSON.stringify(value))
+          }
+        },
+        delete: async (key) => {
+          await redis.del(key)
+        }
+      }
+    })
+  ]
+})
+```
+
+## API Key as Session
+
+From `packages/better-auth/src/plugins/api-key/index.ts:140`:
+
+Enable `enableSessionForAPIKeys` to treat API keys as sessions:
+
+```typescript
+const auth = betterAuth({
+  plugins: [
+    apiKey({
+      enableSessionForAPIKeys: true
+    })
+  ]
+})
+
+// Now API key requests will have session context
+const session = await auth.api.getSession({
+  headers: {
+    "x-api-key": "prod_abc123..."
+  }
+})
+
+// session will contain user and session data
+```
+
+## Security Best Practices
+
+<Warning>
+**Never disable key hashing** unless you have a very specific reason and understand the security implications.
+</Warning>
+
+<Info>
+**Key Prefixes**: Use prefixes like `prod_`, `test_`, `dev_` to easily identify key types.
+</Info>
+
+### Best Practices
+
+1. **Use long keys**: Default 64 characters is recommended
+2. **Enable rate limiting**: Prevent abuse and DoS attacks
+3. **Set expiration dates**: Keys should expire and be rotated
+4. **Monitor usage**: Track `requestCount` and `lastRequest`
+5. **Store securely**: Never log or expose full API keys
+6. **Rotate regularly**: Create new keys periodically
+7. **Use HTTPS**: Always transmit keys over secure connections
+8. **Minimal permissions**: Grant least privilege necessary
+
+## Error Codes
+
+From `packages/better-auth/src/plugins/api-key/index.ts:26`:
+
+- `INVALID_API_KEY`: API key is invalid or malformed
+- `KEY_NOT_FOUND`: API key doesn't exist
+- `KEY_DISABLED`: API key has been disabled
+- `KEY_EXPIRED`: API key has expired
+- `USAGE_EXCEEDED`: API key has reached its usage limit
+- `RATE_LIMIT_EXCEEDED`: Rate limit for this key exceeded
+- `USER_BANNED`: User associated with key is banned
+- `UNAUTHORIZED_SESSION`: Invalid session when creating/managing keys
+
+## Related
+
+- [Sessions Concept](/concepts/sessions)
+- [Rate Limiting](/concepts/rate-limiting)
+- [Device Authorization Plugin](/plugins/device-authorization)

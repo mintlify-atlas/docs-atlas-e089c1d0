@@ -1,0 +1,536 @@
+---
+title: Access Control Plugin
+description: Role-based permissions with fine-grained authorization for your application
+---
+
+The access control plugin provides a flexible, type-safe role-based access control (RBAC) system for defining and enforcing permissions in your application.
+
+## Features
+
+- **Type-safe permissions** - Full TypeScript support with autocomplete
+- **Resource-based authorization** - Define permissions per resource type
+- **Flexible role definitions** - Create custom roles with specific permissions
+- **AND/OR logic** - Combine permissions with different connectors
+- **Framework agnostic** - Works standalone or with other plugins
+- **Zero runtime overhead** - Permissions checked synchronously
+
+## Installation
+
+<CodeGroup>
+
+```bash npm
+npm install better-auth
+```
+
+```bash pnpm
+pnpm add better-auth
+```
+
+```bash bun
+bun add better-auth
+```
+
+</CodeGroup>
+
+## Basic Usage
+
+### Step 1: Define Statements
+
+Statements define what actions are available for each resource:
+
+```typescript access-control.ts
+import { createAccessControl } from "better-auth/plugins/access";
+
+const ac = createAccessControl({
+  user: ["create", "read", "update", "delete"],
+  post: ["create", "read", "update", "delete", "publish"],
+  comment: ["create", "read", "update", "delete", "moderate"],
+  settings: ["read", "update"],
+} as const);
+```
+
+<Note>
+  Use `as const` to get full TypeScript inference and autocomplete.
+</Note>
+
+### Step 2: Create Roles
+
+Define roles with specific permissions:
+
+```typescript access-control.ts
+const adminRole = ac.newRole({
+  user: ["create", "read", "update", "delete"],
+  post: ["create", "read", "update", "delete", "publish"],
+  comment: ["create", "read", "update", "delete", "moderate"],
+  settings: ["read", "update"],
+});
+
+const editorRole = ac.newRole({
+  user: ["read"],
+  post: ["create", "read", "update", "publish"],
+  comment: ["read", "moderate"],
+  settings: ["read"],
+});
+
+const authorRole = ac.newRole({
+  user: ["read"],
+  post: ["create", "read", "update"],
+  comment: ["create", "read"],
+  settings: ["read"],
+});
+
+const viewerRole = ac.newRole({
+  user: ["read"],
+  post: ["read"],
+  comment: ["read"],
+  settings: [],
+});
+```
+
+### Step 3: Check Permissions
+
+Use the `authorize` method to check permissions:
+
+```typescript
+const result = adminRole.authorize({
+  user: ["create", "delete"],
+  post: ["publish"],
+});
+
+if (result.success) {
+  // User has all required permissions
+} else {
+  console.log(result.error); // "unauthorized to access resource..."
+}
+```
+
+## Configuration
+
+### Statements
+
+Statements define the permission universe for your application:
+
+```typescript
+type Statements = {
+  readonly [resource: string]: readonly string[];
+};
+```
+
+**Example:**
+
+```typescript
+const statements = {
+  article: ["create", "read", "update", "delete", "publish", "archive"],
+  media: ["upload", "read", "delete"],
+  analytics: ["view", "export"],
+  billing: ["view", "manage"],
+} as const;
+```
+
+### Role Creation
+
+Roles are subsets of your statements:
+
+```typescript
+const role = ac.newRole({
+  resource1: ["action1", "action2"],
+  resource2: ["action1"],
+  // Must be valid actions from statements
+});
+```
+
+<ParamField path="statements" type="object" required>
+  Object mapping resource names to allowed actions. Each resource must have at least one action.
+</ParamField>
+
+## Authorization
+
+### Basic Authorization
+
+Check if a role has specific permissions:
+
+```typescript
+const result = role.authorize({
+  user: ["read", "update"],
+});
+```
+
+**Response:**
+
+```typescript
+type AuthorizeResponse =
+  | { success: true }
+  | { success: false; error: string };
+```
+
+### AND Logic (Default)
+
+By default, ALL permissions must be granted:
+
+```typescript
+const result = editorRole.authorize({
+  post: ["read", "update", "publish"], // Needs all three
+  comment: ["moderate"], // AND this
+});
+// Returns success: true only if user has ALL permissions
+```
+
+### OR Logic
+
+Check if ANY permission is granted:
+
+```typescript
+const result = role.authorize(
+  {
+    post: ["update"],
+    comment: ["moderate"],
+  },
+  "OR" // Second parameter
+);
+// Returns success: true if user has EITHER permission
+```
+
+### Per-Resource Connectors
+
+Combine permissions differently for each resource:
+
+```typescript
+const result = role.authorize({
+  post: {
+    actions: ["read", "update"],
+    connector: "OR", // Needs read OR update
+  },
+  comment: {
+    actions: ["create", "delete"],
+    connector: "AND", // Needs both create AND delete
+  },
+});
+```
+
+## Integration Examples
+
+### With Admin Plugin
+
+Combine with the admin plugin for application-wide RBAC:
+
+```typescript auth.ts
+import { betterAuth } from "better-auth";
+import { admin } from "better-auth/plugins";
+import { createAccessControl } from "better-auth/plugins/access";
+
+const ac = createAccessControl({
+  user: ["create", "list", "ban", "impersonate", "delete"],
+  session: ["list", "revoke"],
+} as const);
+
+const adminRole = ac.newRole({
+  user: ["create", "list", "ban", "impersonate", "delete"],
+  session: ["list", "revoke"],
+});
+
+const moderatorRole = ac.newRole({
+  user: ["list", "ban"],
+  session: ["list"],
+});
+
+export const auth = betterAuth({
+  plugins: [
+    admin({
+      ac,
+      roles: {
+        admin: adminRole,
+        moderator: moderatorRole,
+      },
+    }),
+  ],
+});
+```
+
+### With Organization Plugin
+
+Create organization-level permissions:
+
+```typescript auth.ts
+import { betterAuth } from "better-auth";
+import { organization } from "better-auth/plugins";
+import { createAccessControl } from "better-auth/plugins/access";
+
+const ac = createAccessControl({
+  organization: ["update", "delete", "billing"],
+  member: ["invite", "remove", "update-role"],
+  team: ["create", "update", "delete"],
+  project: ["create", "read", "update", "delete"],
+} as const);
+
+const ownerRole = ac.newRole({
+  organization: ["update", "delete", "billing"],
+  member: ["invite", "remove", "update-role"],
+  team: ["create", "update", "delete"],
+  project: ["create", "read", "update", "delete"],
+});
+
+const managerRole = ac.newRole({
+  organization: ["update"],
+  member: ["invite", "update-role"],
+  team: ["create", "update"],
+  project: ["create", "read", "update", "delete"],
+});
+
+const memberRole = ac.newRole({
+  organization: [],
+  member: [],
+  team: [],
+  project: ["read"],
+});
+
+export const auth = betterAuth({
+  plugins: [
+    organization({
+      ac,
+      roles: {
+        owner: ownerRole,
+        manager: managerRole,
+        member: memberRole,
+      },
+    }),
+  ],
+});
+```
+
+### Middleware Integration
+
+Protect routes with permission checks:
+
+```typescript middleware.ts
+import { auth } from "./auth";
+import { adminRole, editorRole } from "./access-control";
+
+export async function requirePermission(
+  request: Request,
+  permissions: Record<string, string[]>
+) {
+  const session = await auth.api.getSession({
+    headers: request.headers,
+  });
+
+  if (!session) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const userRole = session.user.role; // e.g., "admin", "editor"
+  const role = userRole === "admin" ? adminRole : editorRole;
+
+  const result = role.authorize(permissions);
+
+  if (!result.success) {
+    return Response.json({ error: result.error }, { status: 403 });
+  }
+}
+
+// Usage in route handler
+export async function DELETE(request: Request) {
+  const denied = await requirePermission(request, {
+    user: ["delete"],
+  });
+
+  if (denied) return denied;
+
+  // User has permission, proceed
+  // ...
+}
+```
+
+### Custom Business Logic
+
+Use standalone for any permission logic:
+
+```typescript permissions.ts
+import { createAccessControl } from "better-auth/plugins/access";
+
+const projectAc = createAccessControl({
+  budget: ["view", "edit", "approve"],
+  timeline: ["view", "edit"],
+  resources: ["view", "allocate", "remove"],
+} as const);
+
+const projectManager = projectAc.newRole({
+  budget: ["view", "edit", "approve"],
+  timeline: ["view", "edit"],
+  resources: ["view", "allocate", "remove"],
+});
+
+const teamLead = projectAc.newRole({
+  budget: ["view"],
+  timeline: ["view", "edit"],
+  resources: ["view", "allocate"],
+});
+
+export function checkProjectPermission(
+  userRole: string,
+  permissions: Record<string, string[]>
+) {
+  const role = userRole === "pm" ? projectManager : teamLead;
+  return role.authorize(permissions);
+}
+```
+
+## Advanced Patterns
+
+### Hierarchical Permissions
+
+Define roles that build on each other:
+
+```typescript
+const baseRole = ac.newRole({
+  post: ["read"],
+  comment: ["read"],
+});
+
+// Extend by including all base permissions plus more
+const contributorRole = ac.newRole({
+  post: ["read", "create"],
+  comment: ["read", "create"],
+});
+
+const moderatorRole = ac.newRole({
+  post: ["read", "create", "update"],
+  comment: ["read", "create", "update", "moderate"],
+});
+```
+
+### Context-Aware Permissions
+
+Combine with context checks:
+
+```typescript
+function canEditPost(user: User, post: Post) {
+  // Check ownership
+  if (post.authorId === user.id) {
+    return true;
+  }
+
+  // Check role permissions
+  const userRole = getRoleForUser(user);
+  const result = userRole.authorize({
+    post: ["update"],
+  });
+
+  return result.success;
+}
+```
+
+### Dynamic Permission Loading
+
+Load permissions from database:
+
+```typescript
+async function getUserRole(userId: string) {
+  const user = await db.user.findUnique({ where: { id: userId } });
+  const permissions = await db.rolePermission.findMany({
+    where: { role: user.role },
+  });
+
+  // Convert to role object
+  const rolePermissions = permissions.reduce((acc, perm) => {
+    if (!acc[perm.resource]) acc[perm.resource] = [];
+    acc[perm.resource].push(perm.action);
+    return acc;
+  }, {});
+
+  return ac.newRole(rolePermissions);
+}
+```
+
+## TypeScript Types
+
+```typescript
+import type { 
+  AccessControl, 
+  Role, 
+  Statements,
+  AuthorizeResponse 
+} from "better-auth/plugins/access";
+
+// Infer role type from statements
+type MyStatements = typeof myStatements;
+type MyRole = Role<MyStatements>;
+
+// Infer permission types
+type UserPermissions = MyStatements["user"][number]; // "create" | "read" | ...
+```
+
+## API Reference
+
+### createAccessControl(statements)
+
+Creates an access control configuration.
+
+**Parameters:**
+- `statements` - Object defining resources and actions
+
+**Returns:**
+- Object with `newRole` method and `statements` property
+
+### ac.newRole(permissions)
+
+Creates a new role with specified permissions.
+
+**Parameters:**
+- `permissions` - Subset of statements defining what role can do
+
+**Returns:**
+- Role object with `authorize` method and `statements` property
+
+### role.authorize(request, connector?)
+
+Checks if role has requested permissions.
+
+**Parameters:**
+- `request` - Object specifying required permissions per resource
+- `connector` - Optional "AND" (default) or "OR" logic
+
+**Returns:**
+- `{ success: true }` if authorized
+- `{ success: false, error: string }` if unauthorized
+
+## Best Practices
+
+1. **Use `as const`** - Always use `as const` for type safety:
+   ```typescript
+   const statements = { ... } as const;
+   ```
+
+2. **Principle of least privilege** - Start with minimal permissions and add as needed
+
+3. **Resource naming** - Use clear, consistent resource names:
+   ```typescript
+   // Good
+   { user: [...], post: [...] }
+   
+   // Avoid
+   { User: [...], posts: [...] }
+   ```
+
+4. **Action consistency** - Use consistent action names across resources:
+   ```typescript
+   // Good
+   { user: ["create", "read", "update", "delete"] }
+   
+   // Avoid mixing
+   { user: ["create", "view", "edit", "remove"] }
+   ```
+
+5. **Centralize definitions** - Keep all access control in one file:
+   ```typescript
+   // access-control.ts
+   export const ac = createAccessControl({ ... });
+   export const roles = { ... };
+   ```
+
+6. **Test permissions** - Write tests for permission logic:
+   ```typescript
+   test("admin can delete users", () => {
+     const result = adminRole.authorize({ user: ["delete"] });
+     expect(result.success).toBe(true);
+   });
+   ```

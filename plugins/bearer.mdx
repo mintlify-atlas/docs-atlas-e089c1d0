@@ -1,0 +1,466 @@
+---
+title: Bearer Token Plugin
+description: Convert Bearer tokens to session cookies for API authentication
+---
+
+The bearer plugin enables Bearer token authentication by automatically converting Authorization header tokens to session cookies, allowing you to use Better Auth with mobile apps, desktop clients, and third-party API integrations.
+
+## Features
+
+- **Automatic token conversion** - Converts Bearer tokens to session cookies transparently
+- **Signed token support** - Validates HMAC-signed tokens for security
+- **Response token header** - Returns tokens in `set-auth-token` header
+- **Framework agnostic** - Works with any HTTP client or API framework
+- **Zero configuration** - Works out of the box with sensible defaults
+
+## Use Cases
+
+- **Mobile applications** - React Native, Flutter, Swift, Kotlin apps
+- **Desktop applications** - Electron, Tauri apps
+- **CLI tools** - Command-line interfaces
+- **Third-party integrations** - Webhooks, external services
+- **API-first applications** - Pure API backends without browser sessions
+
+## Installation
+
+<CodeGroup>
+
+```bash npm
+npm install better-auth
+```
+
+```bash pnpm
+pnpm add better-auth
+```
+
+```bash bun
+bun add better-auth
+```
+
+</CodeGroup>
+
+## Setup
+
+<Steps>
+
+<Step title="Add Plugin to Server">
+
+```typescript auth.ts
+import { betterAuth } from "better-auth";
+import { bearer } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  database: {
+    // your database config
+  },
+  plugins: [
+    bearer(),
+  ],
+});
+```
+
+</Step>
+
+<Step title="Configure Client">
+
+No client plugin needed - just send Authorization header:
+
+```typescript
+fetch("https://api.example.com/protected", {
+  headers: {
+    Authorization: `Bearer ${token}`,
+  },
+});
+```
+
+</Step>
+
+</Steps>
+
+## Configuration
+
+<ParamField path="requireSignature" type="boolean" default="false">
+  If `true`, only accepts signed tokens (with HMAC signature). Unsigned tokens are rejected.
+  
+  ```typescript
+  bearer({ requireSignature: true })
+  ```
+  
+  <Note>
+    Enable this for production environments to prevent token forgery.
+  </Note>
+</ParamField>
+
+## Usage
+
+### Getting a Token
+
+After authentication, extract the token from the `set-auth-token` response header:
+
+**Sign In:**
+
+```typescript
+const response = await fetch("https://api.example.com/auth/sign-in", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    email: "user@example.com",
+    password: "password",
+  }),
+});
+
+const token = response.headers.get("set-auth-token");
+// Save token for future requests
+```
+
+**OAuth Callback:**
+
+```typescript
+// After OAuth redirect
+const token = response.headers.get("set-auth-token");
+storeToken(token);
+```
+
+### Using the Token
+
+Send the token in the Authorization header:
+
+```typescript
+const response = await fetch("https://api.example.com/api/protected", {
+  headers: {
+    Authorization: `Bearer ${token}`,
+  },
+});
+```
+
+The plugin automatically:
+1. Extracts the token from `Authorization` header
+2. Validates the token signature (if signed)
+3. Converts to session cookie internally
+4. Processes request as authenticated
+
+### Token Format
+
+Tokens are either:
+
+**Signed (recommended):**
+```
+<session-id>.<hmac-signature>
+```
+
+**Unsigned:**
+```
+<session-id>
+```
+
+<Warning>
+  Unsigned tokens are only recommended for development. Use signed tokens in production.
+</Warning>
+
+## Client Examples
+
+### React Native
+
+```typescript
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+class AuthService {
+  async signIn(email: string, password: string) {
+    const response = await fetch('https://api.example.com/auth/sign-in', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const token = response.headers.get('set-auth-token');
+    await AsyncStorage.setItem('auth-token', token);
+    return token;
+  }
+
+  async getToken() {
+    return await AsyncStorage.getItem('auth-token');
+  }
+
+  async fetchProtected(url: string) {
+    const token = await this.getToken();
+    return fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  }
+}
+```
+
+### Flutter (Dart)
+
+```dart
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
+class AuthService {
+  Future<String?> signIn(String email, String password) async {
+    final response = await http.post(
+      Uri.parse('https://api.example.com/auth/sign-in'),
+      body: {'email': email, 'password': password},
+    );
+
+    final token = response.headers['set-auth-token'];
+    if (token != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('auth-token', token);
+    }
+    return token;
+  }
+
+  Future<http.Response> fetchProtected(String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth-token');
+
+    return http.get(
+      Uri.parse(url),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+  }
+}
+```
+
+### Swift (iOS)
+
+```swift
+import Foundation
+
+class AuthService {
+    func signIn(email: String, password: String) async throws -> String? {
+        let url = URL(string: "https://api.example.com/auth/sign-in")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body = ["email": email, "password": password]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (_, response) = try await URLSession.shared.data(for: request)
+        let httpResponse = response as! HTTPURLResponse
+        let token = httpResponse.value(forHTTPHeaderField: "set-auth-token")
+        
+        if let token = token {
+            UserDefaults.standard.set(token, forKey: "auth-token")
+        }
+        return token
+    }
+    
+    func fetchProtected(url: String) async throws -> Data {
+        guard let token = UserDefaults.standard.string(forKey: "auth-token") else {
+            throw AuthError.noToken
+        }
+        
+        var request = URLRequest(url: URL(string: url)!)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return data
+    }
+}
+```
+
+### Kotlin (Android)
+
+```kotlin
+import okhttp3.*
+import android.content.SharedPreferences
+
+class AuthService(private val prefs: SharedPreferences) {
+    private val client = OkHttpClient()
+
+    suspend fun signIn(email: String, password: String): String? {
+        val body = FormBody.Builder()
+            .add("email", email)
+            .add("password", password)
+            .build()
+
+        val request = Request.Builder()
+            .url("https://api.example.com/auth/sign-in")
+            .post(body)
+            .build()
+
+        val response = client.newCall(request).execute()
+        val token = response.header("set-auth-token")
+        
+        token?.let {
+            prefs.edit().putString("auth-token", it).apply()
+        }
+        return token
+    }
+
+    suspend fun fetchProtected(url: String): Response {
+        val token = prefs.getString("auth-token", null)
+            ?: throw IllegalStateException("No token")
+
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer $token")
+            .build()
+
+        return client.newCall(request).execute()
+    }
+}
+```
+
+### cURL
+
+```bash
+# Sign in and capture token
+TOKEN=$(curl -X POST https://api.example.com/auth/sign-in \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"password"}' \
+  -I | grep -i "set-auth-token" | cut -d' ' -f2)
+
+# Use token
+curl https://api.example.com/api/protected \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## Token Security
+
+### Signed Tokens
+
+Signed tokens use HMAC-SHA256 for verification:
+
+```typescript
+beare({ requireSignature: true })
+```
+
+The plugin:
+1. Validates signature using your `BETTER_AUTH_SECRET`
+2. Rejects tampered or forged tokens
+3. Ensures token authenticity
+
+### Token Storage
+
+**Mobile/Desktop Apps:**
+- Use secure storage (Keychain, Keystore, encrypted storage)
+- Never log tokens
+- Clear tokens on sign out
+
+**Web Apps:**
+- Use httpOnly cookies instead (default Better Auth behavior)
+- Bearer tokens are for non-browser clients
+
+### Token Refresh
+
+Tokens are session cookies - they expire based on your session configuration:
+
+```typescript
+betterAuth({
+  session: {
+    expiresIn: 60 * 60 * 24 * 7, // 7 days
+  },
+  plugins: [bearer()],
+})
+```
+
+Handle expired tokens:
+
+```typescript
+const response = await fetch(url, {
+  headers: { Authorization: `Bearer ${token}` },
+});
+
+if (response.status === 401) {
+  // Token expired, re-authenticate
+  await signIn();
+}
+```
+
+## Response Headers
+
+The plugin adds CORS headers for token exposure:
+
+```
+Access-Control-Expose-Headers: set-auth-token
+```
+
+This allows JavaScript clients to read the token from responses.
+
+## How It Works
+
+1. **Before Request** (Hook):
+   - Checks for `Authorization: Bearer <token>` header
+   - Validates token signature (if enabled)
+   - Converts token to cookie format
+   - Adds cookie to request headers
+
+2. **Request Processing**:
+   - Better Auth processes request normally
+   - Session validated from cookie
+   - User authenticated
+
+3. **After Request** (Hook):
+   - Extracts session cookie from response
+   - Adds `set-auth-token` header with token
+   - Adds CORS headers
+
+## Compatibility
+
+**Works with:**
+- All Better Auth authentication methods
+- Email/password
+- OAuth providers
+- Magic links
+- Passkeys
+- Two-factor authentication
+
+**Framework support:**
+- Next.js
+- SvelteKit
+- Nuxt
+- Express
+- Hono
+- Any HTTP framework
+
+## Limitations
+
+- No automatic token refresh mechanism
+- Tokens expire with session (no separate refresh tokens)
+- Bearer plugin doesn't provide token generation endpoint
+- CSRF protection not applicable (no cookies in browser)
+
+## Best Practices
+
+1. **Use signed tokens in production:**
+   ```typescript
+   bearer({ requireSignature: true })
+   ```
+
+2. **Store tokens securely:**
+   - Use platform-specific secure storage
+   - Never store in plain text files
+
+3. **Handle token expiration:**
+   - Implement automatic re-authentication
+   - Show appropriate UI on 401 responses
+
+4. **Use HTTPS:**
+   - Always use HTTPS in production
+   - Tokens sent in headers are visible in plain text
+
+5. **Implement token rotation:**
+   - Sign out and re-authenticate periodically
+   - Clear tokens on app updates
+
+6. **Monitor token usage:**
+   - Log authentication attempts
+   - Detect unusual patterns
+
+## TypeScript Types
+
+```typescript
+import type { BearerOptions } from "better-auth/plugins";
+
+const options: BearerOptions = {
+  requireSignature: true,
+};
+```

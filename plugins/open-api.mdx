@@ -1,0 +1,519 @@
+---
+title: OpenAPI
+description: Generate OpenAPI specification and interactive API documentation
+---
+
+The OpenAPI plugin automatically generates an OpenAPI 3.1.1 specification for your Better Auth instance and provides an interactive API reference powered by Scalar. This makes it easy to explore, test, and document your authentication API.
+
+## Features
+
+- **Automatic Schema Generation**: Creates OpenAPI spec from your auth configuration
+- **Interactive Documentation**: Beautiful API reference with Scalar UI
+- **Plugin Support**: Includes all enabled plugin endpoints
+- **Database Schema**: Documents your database models
+- **Customizable Themes**: Multiple built-in themes for the reference page
+- **Type-Safe**: Preserves TypeScript types in the generated schema
+
+## Installation
+
+The OpenAPI plugin is built into Better Auth core:
+
+```ts
+import { openAPI } from "better-auth/plugins";
+```
+
+No additional packages required.
+
+## Configuration
+
+### Basic Setup
+
+```ts title="lib/auth.ts"
+import { betterAuth } from "better-auth";
+import { openAPI } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  database: {
+    // your database configuration
+  },
+  plugins: [
+    openAPI(),
+  ],
+});
+```
+
+This creates an interactive API reference at `/api/auth/reference`.
+
+### Custom Path
+
+Change the reference page path:
+
+```ts title="lib/auth.ts"
+import { openAPI } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    openAPI({
+      path: "/docs/api", // Access at /api/auth/docs/api
+    }),
+  ],
+});
+```
+
+### Custom Theme
+
+Choose from multiple Scalar themes:
+
+```ts title="lib/auth.ts"
+import { openAPI } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    openAPI({
+      theme: "purple", // default | alternate | moon | purple | solarized | bluePlanet | saturn | kepler | mars | deepSpace | laserwave | none
+    }),
+  ],
+});
+```
+
+### Disable Default Reference
+
+Generate the spec without hosting the UI:
+
+```ts title="lib/auth.ts"
+import { openAPI } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    openAPI({
+      disableDefaultReference: true, // Only exposes the JSON schema endpoint
+    }),
+  ],
+});
+```
+
+### Content Security Policy
+
+Add a nonce for CSP compliance:
+
+```ts title="lib/auth.ts"
+import { openAPI } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    openAPI({
+      nonce: "your-csp-nonce", // For inline scripts
+    }),
+  ],
+});
+```
+
+## Usage
+
+### Access API Reference
+
+Once configured, visit the reference page:
+
+```
+https://yourdomain.com/api/auth/reference
+```
+
+The interactive documentation includes:
+- All authentication endpoints
+- Plugin endpoints (if enabled)
+- Request/response schemas
+- Try-it-out functionality
+- Database model schemas
+
+### Get OpenAPI Schema JSON
+
+Access the raw OpenAPI specification:
+
+```bash
+curl https://yourdomain.com/api/auth/open-api/generate-schema
+```
+
+Or from your application:
+
+```ts
+import { auth } from "@/lib/auth";
+
+const schema = await auth.api.generateOpenAPISchema();
+console.log(JSON.stringify(schema, null, 2));
+```
+
+### Use with External Tools
+
+The generated OpenAPI schema works with popular API tools:
+
+#### Postman
+
+1. Import the schema: `https://yourdomain.com/api/auth/open-api/generate-schema`
+2. Create a Postman Collection from the OpenAPI spec
+3. Test endpoints directly from Postman
+
+#### Swagger UI
+
+```html
+<!DOCTYPE html>
+<html>
+  <head>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@latest/swagger-ui.css" />
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@latest/swagger-ui-bundle.js"></script>
+    <script>
+      SwaggerUIBundle({
+        url: 'https://yourdomain.com/api/auth/open-api/generate-schema',
+        dom_id: '#swagger-ui',
+      });
+    </script>
+  </body>
+</html>
+```
+
+#### Redoc
+
+```html
+<!DOCTYPE html>
+<html>
+  <head>
+    <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+  </head>
+  <body>
+    <redoc spec-url="https://yourdomain.com/api/auth/open-api/generate-schema"></redoc>
+  </body>
+</html>
+```
+
+## OpenAPI Spec Generation
+
+### Endpoint Documentation
+
+The plugin automatically generates documentation for all endpoints. You can enhance it with OpenAPI metadata:
+
+```ts title="lib/custom-endpoint.ts"
+import { createAuthEndpoint } from "better-auth/plugins";
+import * as z from "zod";
+
+export const myEndpoint = createAuthEndpoint(
+  "/custom/action",
+  {
+    method: "POST",
+    body: z.object({
+      email: z.string().email().meta({
+        description: "User email address"
+      }),
+      name: z.string().meta({
+        description: "User full name"
+      }),
+    }),
+    metadata: {
+      openapi: {
+        operationId: "customAction",
+        description: "Performs a custom authentication action",
+        tags: ["Custom"],
+        responses: {
+          "200": {
+            description: "Action completed successfully",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    message: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (ctx) => {
+    // Your endpoint logic
+    return ctx.json({ success: true, message: "Done" });
+  }
+);
+```
+
+### Database Models
+
+The plugin generates schemas for all database tables:
+
+```json
+{
+  "components": {
+    "schemas": {
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "email": { "type": "string" },
+          "name": { "type": "string" },
+          "emailVerified": { "type": "boolean" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "email", "emailVerified"]
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "userId": { "type": "string" },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "ipAddress": { "type": "string" },
+          "userAgent": { "type": "string" }
+        }
+      }
+    }
+  }
+}
+```
+
+### Plugin Integration
+
+All plugin endpoints are automatically included:
+
+```ts title="lib/auth.ts"
+import { betterAuth } from "better-auth";
+import { openAPI } from "better-auth/plugins";
+import { twoFactor } from "better-auth/plugins";
+import { organization } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    twoFactor(), // Adds 2FA endpoints to OpenAPI spec
+    organization(), // Adds organization endpoints
+    openAPI(), // Generates spec including all plugin endpoints
+  ],
+});
+```
+
+The generated spec will include:
+- `/two-factor/enable`
+- `/two-factor/verify`
+- `/organization/create`
+- `/organization/list`
+- etc.
+
+## API Reference
+
+### Configuration Options
+
+#### OpenAPIOptions
+
+```ts
+interface OpenAPIOptions {
+  path?: string;
+  disableDefaultReference?: boolean;
+  theme?: ScalarTheme;
+  nonce?: string;
+}
+```
+
+#### ScalarTheme
+
+```ts
+type ScalarTheme =
+  | "alternate"
+  | "default"
+  | "moon"
+  | "purple"
+  | "solarized"
+  | "bluePlanet"
+  | "saturn"
+  | "kepler"
+  | "mars"
+  | "deepSpace"
+  | "laserwave"
+  | "none";
+```
+
+### Server Methods
+
+#### auth.api.generateOpenAPISchema()
+
+Programmatically generate the OpenAPI schema:
+
+```ts
+const schema = await auth.api.generateOpenAPISchema();
+```
+
+Returns the complete OpenAPI 3.1.1 specification object.
+
+## Generated Schema Structure
+
+The OpenAPI spec includes:
+
+```json
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "Better Auth",
+    "description": "API Reference for your Better Auth Instance",
+    "version": "1.1.0"
+  },
+  "servers": [
+    {
+      "url": "https://yourdomain.com/api/auth"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Bearer token authentication"
+      },
+      "apiKeyCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "apiKeyCookie",
+        "description": "API Key authentication via cookie"
+      }
+    },
+    "schemas": {
+      "User": { /* ... */ },
+      "Session": { /* ... */ },
+      "Account": { /* ... */ }
+    }
+  },
+  "paths": {
+    "/sign-in/email": {
+      "post": {
+        "tags": ["Default"],
+        "operationId": "signInEmail",
+        "requestBody": { /* ... */ },
+        "responses": { /* ... */ }
+      }
+    }
+  },
+  "security": [
+    {
+      "apiKeyCookie": [],
+      "bearerAuth": []
+    }
+  ]
+}
+```
+
+## Examples
+
+### Custom API Documentation Page
+
+```tsx title="app/docs/api/page.tsx"
+import { auth } from "@/lib/auth";
+
+export default async function APIDocsPage() {
+  const schema = await auth.api.generateOpenAPISchema();
+
+  return (
+    <div>
+      <h1>API Documentation</h1>
+      <pre>{JSON.stringify(schema, null, 2)}</pre>
+    </div>
+  );
+}
+```
+
+### Download OpenAPI Spec
+
+```tsx title="components/download-spec.tsx"
+'use client';
+
+import { authClient } from "@/lib/auth-client";
+
+export function DownloadSpecButton() {
+  const downloadSpec = async () => {
+    const response = await fetch('/api/auth/open-api/generate-schema');
+    const spec = await response.json();
+    
+    const blob = new Blob([JSON.stringify(spec, null, 2)], {
+      type: 'application/json',
+    });
+    
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'better-auth-openapi.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return <button onClick={downloadSpec}>Download OpenAPI Spec</button>;
+}
+```
+
+### CI/CD Schema Validation
+
+```ts title="scripts/validate-schema.ts"
+import { auth } from "./lib/auth";
+import fs from "fs";
+
+async function validateSchema() {
+  const schema = await auth.api.generateOpenAPISchema();
+  
+  // Write to file for versioning
+  fs.writeFileSync(
+    './openapi.json',
+    JSON.stringify(schema, null, 2)
+  );
+  
+  // Validate schema structure
+  if (!schema.paths || Object.keys(schema.paths).length === 0) {
+    throw new Error('OpenAPI schema has no paths');
+  }
+  
+  console.log(`✓ Generated schema with ${Object.keys(schema.paths).length} endpoints`);
+}
+
+validateSchema();
+```
+
+### Embed in Custom UI
+
+```tsx title="app/api-reference/page.tsx"
+'use client';
+
+import { useEffect, useRef } from 'react';
+
+export default function APIReferencePage() {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !containerRef.current) return;
+
+    // Load Scalar dynamically
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/@scalar/api-reference';
+    script.async = true;
+    
+    script.onload = () => {
+      const config = {
+        spec: {
+          url: '/api/auth/open-api/generate-schema',
+        },
+        theme: 'purple',
+      };
+      
+      // Initialize Scalar
+      if (containerRef.current) {
+        containerRef.current.innerHTML = `
+          <script id="api-reference" type="application/json">
+            ${JSON.stringify(config)}
+          </script>
+        `;
+      }
+    };
+    
+    document.head.appendChild(script);
+  }, []);
+
+  return <div ref={containerRef} style={{ minHeight: '100vh' }} />;
+}
+```

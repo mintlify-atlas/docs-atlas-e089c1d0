@@ -1,0 +1,581 @@
+---
+title: "Sessions"
+description: "Understanding session management, storage, and security in Better Auth"
+---
+
+## Overview
+
+Sessions are the core mechanism for maintaining user authentication state in Better Auth. The session system is designed with security, performance, and flexibility in mind, supporting multiple storage strategies and automatic refresh mechanisms.
+
+## Session Model
+
+From `packages/core/src/db/schema/session.ts:4`:
+
+```typescript
+const sessionSchema = z.object({
+  id: z.string(),
+  userId: z.coerce.string(),        // Foreign key to user
+  token: z.string(),                // Unique session token
+  expiresAt: z.date(),              // Session expiration
+  ipAddress: z.string().nullish(),  // Client IP address
+  userAgent: z.string().nullish(),  // Client user agent
+  createdAt: z.date(),
+  updatedAt: z.date(),
+})
+
+type Session = z.infer<typeof sessionSchema>
+```
+
+**Key Properties:**
+
+- **token**: Cryptographically random string used in the session cookie
+- **expiresAt**: Absolute expiration time (rolling window)
+- **ipAddress**: For tracking and security monitoring
+- **userAgent**: Identifies the client device/browser
+
+## Session Storage
+
+### Database Storage
+
+All sessions are stored in the database by default. This provides:
+
+- **Persistence**: Sessions survive server restarts
+- **Revocation**: Immediate logout across all requests
+- **Tracking**: List all active sessions per user
+- **Security**: Server-side validation on every request
+
+From `packages/core/src/types/context.ts:62`:
+
+```typescript
+interface InternalAdapter {
+  createSession(
+    userId: string,
+    dontRememberMe?: boolean,
+    override?: Partial<Session>,
+    overrideAll?: boolean
+  ): Promise<Session>
+  
+  findSession(token: string): Promise<{
+    session: Session
+    user: User
+  } | null>
+  
+  listSessions(userId: string): Promise<Session[]>
+  
+  deleteSession(token: string): Promise<void>
+  
+  deleteSessions(userId: string): Promise<void>
+}
+```
+
+### Cookie Caching
+
+For performance, Better Auth can cache session data in encrypted cookies, reducing database queries.
+
+From `packages/better-auth/src/api/routes/session.ts:98`:
+
+```typescript
+// The session cookie contains the token
+// The session data cookie contains encrypted session + user data
+
+if (sessionDataCookie) {
+  const strategy = ctx.context.options.session?.cookieCache?.strategy || "compact"
+  
+  if (strategy === "jwe") {
+    // Encrypted JWT (most secure)
+    const payload = await symmetricDecodeJWT(sessionDataCookie, ctx.context.secret)
+  } else if (strategy === "jwt") {
+    // Signed JWT (readable but tamper-proof)
+    const payload = await verifyJWT(sessionDataCookie, ctx.context.secret)
+  } else {
+    // Compact format (signed JSON)
+    const parsed = JSON.parse(base64Decode(sessionDataCookie))
+    const isValid = await verifyHMAC(parsed.signature)
+  }
+}
+```
+
+**Configuration:**
+
+```typescript
+const auth = betterAuth({
+  session: {
+    cookieCache: {
+      enabled: true,
+      maxAge: 5 * 60,  // 5 minutes cache
+      strategy: "jwe",  // "jwe" | "jwt" | "compact"
+      version: "1",     // Invalidate cache on version change
+    }
+  }
+})
+```
+
+**Cache Refresh:**
+
+From line 231:
+
+```typescript
+const cookieRefreshCache = ctx.context.sessionConfig.cookieRefreshCache
+
+if (cookieRefreshCache === false) {
+  // Never refresh - always use cached data
+  return cachedSession
+}
+
+const timeUntilExpiry = expiresAt - Date.now()
+const updateAge = cookieRefreshCache.updateAge * 1000
+
+if (timeUntilExpiry < updateAge) {
+  // Refresh cache if close to expiration
+  const newExpiresAt = getDate(cookieMaxAge, "sec")
+  await setCookieCache(ctx, { ...session, expiresAt: newExpiresAt })
+}
+```
+
+<Info>
+Cookie caching can reduce database load by 95%+ for authenticated requests, while still allowing instant session revocation.
+</Info>
+
+## Session Lifecycle
+
+### 1. Session Creation
+
+```typescript
+// During sign-in
+const session = await ctx.context.internalAdapter.createSession(
+  user.id,
+  dontRememberMe,  // If true, shorter expiration
+  {
+    ipAddress: getIp(ctx.request),
+    userAgent: ctx.headers.get("user-agent"),
+  }
+)
+
+// Set cookie
+await setSessionCookie(ctx, { session, user }, dontRememberMe)
+```
+
+Session creation:
+1. Generates cryptographically random token
+2. Calculates expiration based on config
+3. Stores session in database
+4. Sets signed cookie with token
+5. Optionally sets cache cookie with data
+
+### 2. Session Retrieval
+
+From `packages/better-auth/src/api/routes/session.ts:30`:
+
+```typescript
+export const getSession = createAuthEndpoint(
+  "/get-session",
+  { method: "GET" },
+  async (ctx) => {
+    // 1. Read session token from cookie
+    const token = await ctx.getSignedCookie(
+      ctx.context.authCookies.sessionToken.name,
+      ctx.context.secret
+    )
+    
+    if (!token) return null
+    
+    // 2. Check cache cookie
+    const cachedData = getChunkedCookie(ctx, "session_data")
+    if (cachedData && !expired) {
+      return cachedSession
+    }
+    
+    // 3. Fetch from database
+    const session = await ctx.context.internalAdapter.findSession(token)
+    
+    // 4. Check expiration
+    if (!session || session.session.expiresAt < new Date()) {
+      deleteSessionCookie(ctx)
+      if (session) {
+        await ctx.context.internalAdapter.deleteSession(token)
+      }
+      return null
+    }
+    
+    // 5. Update if needed (rolling window)
+    const shouldUpdate = calculateUpdate(session)
+    if (shouldUpdate) {
+      const updated = await ctx.context.internalAdapter.updateSession(
+        token,
+        { expiresAt: getDate(expiresIn, "sec") }
+      )
+      await setSessionCookie(ctx, { session: updated, user })
+    }
+    
+    return { session, user }
+  }
+)
+```
+
+### 3. Session Refresh
+
+Sessions automatically refresh using a rolling window approach:
+
+```typescript
+const auth = betterAuth({
+  session: {
+    expiresIn: 60 * 60 * 24 * 7,  // 7 days
+    updateAge: 60 * 60 * 24,      // Update if older than 1 day
+  }
+})
+```
+
+From line 381:
+
+```typescript
+// Calculate when session should be updated
+const sessionIsDueToBeUpdatedDate =
+  session.expiresAt.valueOf() - expiresIn * 1000 + updateAge * 1000
+
+const shouldBeUpdated = sessionIsDueToBeUpdatedDate <= Date.now()
+
+if (shouldBeUpdated) {
+  const newExpiration = getDate(expiresIn, "sec")
+  await ctx.context.internalAdapter.updateSession(token, {
+    expiresAt: newExpiration,
+    updatedAt: new Date(),
+  })
+}
+```
+
+**Example Timeline:**
+
+```
+Day 0: Session created, expires in 7 days
+Day 1-5: Session used, no updates (updateAge not reached)
+Day 6: Session used, expires in 1 day → UPDATE → expires in 7 days (from now)
+Day 7: Session used, expires in 6 days (no update needed)
+Day 13: Session expires if not used after day 6
+```
+
+<Tip>
+Adjust `updateAge` to control update frequency. Lower values = more DB writes but fresher sessions.
+</Tip>
+
+### 4. Session Revocation
+
+```typescript
+// Revoke single session
+await authClient.session.revoke({ token })
+
+// Revoke all other sessions (keep current)
+await authClient.revokeOtherSessions()
+
+// Revoke all sessions (full logout)
+await authClient.revokeSessions()
+```
+
+From `packages/better-auth/src/api/routes/session.ts:627`:
+
+```typescript
+export const revokeSession = createAuthEndpoint(
+  "/revoke-session",
+  {
+    method: "POST",
+    body: z.object({ token: z.string() }),
+    use: [sensitiveSessionMiddleware],  // Force DB check
+  },
+  async (ctx) => {
+    const session = await ctx.context.internalAdapter.findSession(ctx.body.token)
+    
+    // Verify ownership
+    if (session?.session.userId === ctx.context.session.user.id) {
+      await ctx.context.internalAdapter.deleteSession(ctx.body.token)
+    }
+    
+    return { status: true }
+  }
+)
+```
+
+## Session Configuration
+
+### Basic Settings
+
+```typescript
+const auth = betterAuth({
+  session: {
+    // Session expiration (seconds)
+    expiresIn: 60 * 60 * 24 * 7,  // 7 days
+    
+    // Update threshold (seconds)
+    updateAge: 60 * 60 * 24,  // 1 day
+    
+    // Fresh session threshold (seconds)
+    // Used for sensitive operations
+    freshAge: 60 * 60,  // 1 hour
+    
+    // Disable automatic refresh
+    disableSessionRefresh: false,
+  }
+})
+```
+
+### Cookie Configuration
+
+```typescript
+const auth = betterAuth({
+  session: {
+    cookieCache: {
+      enabled: true,
+      maxAge: 5 * 60,  // 5 minutes
+      strategy: "jwe",  // Most secure
+      
+      // Version-based invalidation
+      version: async (session, user) => {
+        // Change version to invalidate all caches
+        return user.role + session.userId
+      },
+    }
+  },
+  
+  advanced: {
+    cookies: {
+      // Cookie name prefix
+      sessionToken: {
+        name: "better-auth.session_token",
+        options: {
+          httpOnly: true,
+          secure: true,
+          sameSite: "lax",
+          path: "/",
+        }
+      }
+    }
+  }
+})
+```
+
+### Remember Me
+
+Users can choose session duration:
+
+```typescript
+// Short session (session expires when browser closes)
+await authClient.signIn.email({
+  email: "user@example.com",
+  password: "password",
+  rememberMe: false
+})
+
+// Long session (persists across browser restarts)
+await authClient.signIn.email({
+  email: "user@example.com",
+  password: "password",
+  rememberMe: true  // Default
+})
+```
+
+Implementation:
+
+```typescript
+if (dontRememberMe) {
+  // Set session cookie without maxAge (session cookie)
+  ctx.setCookie(name, value, { ...options, maxAge: undefined })
+  // Store flag in separate cookie
+  await ctx.setSignedCookie("dont_remember", "true", secret)
+} else {
+  // Set with maxAge (persistent cookie)
+  ctx.setCookie(name, value, { ...options, maxAge: expiresIn })
+}
+```
+
+## Session Security
+
+### Token Generation
+
+```typescript
+// Cryptographically random tokens
+import { generateRandomString } from "@better-auth/crypto"
+
+const token = generateRandomString(32)  // 256 bits of entropy
+```
+
+### Signed Cookies
+
+All session cookies are signed to prevent tampering:
+
+```typescript
+await ctx.setSignedCookie(
+  name,
+  value,
+  secret,  // HMAC-SHA256 signature
+  options
+)
+
+const value = await ctx.getSignedCookie(name, secret)
+if (!value) {
+  // Cookie was tampered with or doesn't exist
+}
+```
+
+### Cookie Attributes
+
+Secure defaults:
+
+```typescript
+{
+  httpOnly: true,      // Prevent XSS access
+  secure: true,        // HTTPS only (in production)
+  sameSite: "lax",     // CSRF protection
+  path: "/",           // Available to all routes
+  maxAge: expiresIn,   // Automatic expiration
+}
+```
+
+### Session Fixation Prevention
+
+New session is created after authentication, invalidating any pre-existing session:
+
+```typescript
+// Before sign-in: no session or anonymous session
+// After sign-in: NEW session with different token
+
+const session = await ctx.context.internalAdapter.createSession(user.id)
+// This generates a new random token
+```
+
+### Fresh Session Requirement
+
+For sensitive operations, require a recently created session:
+
+```typescript
+export const changePassword = createAuthEndpoint(
+  "/change-password",
+  {
+    use: [freshSessionMiddleware],  // Session must be < freshAge
+  },
+  async (ctx) => {
+    // User's session is fresh, safe to change password
+  }
+)
+```
+
+From line 546:
+
+```typescript
+const freshSessionMiddleware = createAuthMiddleware(async (ctx) => {
+  const session = await getSessionFromCtx(ctx)
+  if (!session) throw new APIError("UNAUTHORIZED")
+  
+  if (ctx.context.sessionConfig.freshAge === 0) {
+    return { session }  // Fresh check disabled
+  }
+  
+  const freshAge = ctx.context.sessionConfig.freshAge
+  const lastUpdated = new Date(session.session.updatedAt).getTime()
+  const isFresh = Date.now() - lastUpdated < freshAge * 1000
+  
+  if (!isFresh) {
+    throw new APIError("FORBIDDEN", {
+      message: "Session is not fresh"
+    })
+  }
+  
+  return { session }
+})
+```
+
+## Session Management
+
+### List Active Sessions
+
+```typescript
+const sessions = await authClient.listSessions()
+
+// Returns array of sessions
+[
+  {
+    id: "sess_...",
+    token: "token_...",
+    ipAddress: "192.168.1.1",
+    userAgent: "Mozilla/5.0...",
+    createdAt: Date,
+    expiresAt: Date,
+  },
+  // ... more sessions
+]
+```
+
+### Current Session
+
+```typescript
+// Check if user has active session
+const session = await authClient.getSession()
+
+if (session) {
+  console.log(session.user)     // User data
+  console.log(session.session)  // Session data
+} else {
+  // Not authenticated
+}
+```
+
+### Revoke Sessions
+
+```typescript
+// Revoke specific session
+await authClient.revokeSession({ token: "sess_..." })
+
+// Revoke all other sessions (logout other devices)
+await authClient.revokeOtherSessions()
+
+// Full logout (all devices including current)
+await authClient.revokeSessions()
+```
+
+## Multi-Session Support
+
+The [multi-session plugin](/plugins/multi-session) allows users to maintain multiple independent sessions:
+
+```typescript
+const auth = betterAuth({
+  plugins: [
+    multiSession({
+      maximumSessions: 5
+    })
+  ]
+})
+
+// Client can manage multiple sessions
+await authClient.multiSession.create()
+await authClient.multiSession.switch({ sessionId })
+await authClient.multiSession.list()
+```
+
+## Performance Tips
+
+1. **Enable cookie caching** to reduce database queries
+2. **Use appropriate updateAge** (24 hours is good default)
+3. **Consider secondary storage** for session data in distributed systems
+4. **Clean up expired sessions** periodically:
+
+```typescript
+// Cron job or background task
+await db.deleteMany({
+  model: "session",
+  where: [{ field: "expiresAt", operator: "lt", value: new Date() }]
+})
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Database" icon="database" href="/concepts/database">
+    Learn about database adapters and schema
+  </Card>
+  <Card title="Two-Factor Auth" icon="shield" href="/authentication/two-factor">
+    Add session verification with 2FA
+  </Card>
+  <Card title="Multi-Session" icon="window" href="/plugins/multi-session">
+    Enable multiple concurrent sessions
+  </Card>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Explore all configuration options
+  </Card>
+</CardGroup>

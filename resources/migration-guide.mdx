@@ -1,0 +1,683 @@
+---
+title: Migration Guides
+description: Step-by-step guides for migrating to Better Auth from other authentication solutions.
+---
+
+Migrating your authentication system can be challenging, but Better Auth provides comprehensive guides to help you transition smoothly from other solutions. This page indexes all available migration guides and provides general migration strategies.
+
+## Available Migration Guides
+
+Detailed step-by-step guides for migrating from popular authentication services:
+
+<CardGroup cols={2}>
+  <Card
+    href="/guides/clerk-migration-guide"
+    title="Clerk → Better Auth"
+    description="Migrate from Clerk with user data, passwords, social accounts, and two-factor authentication"
+  />
+  <Card
+    href="/guides/next-auth-migration-guide"
+    title="Auth.js/NextAuth → Better Auth"
+    description="Transition from Auth.js v5 or NextAuth.js v4 with database schema migration"
+  />
+  <Card
+    href="/guides/supabase-migration-guide"
+    title="Supabase Auth → Better Auth"
+    description="Move from Supabase authentication to Better Auth"
+  />
+  <Card
+    href="/guides/auth0-migration-guide"
+    title="Auth0 → Better Auth"
+    description="Migrate from Auth0 with user management and OAuth flows"
+  />
+  <Card
+    href="/guides/workos-migration-guide"
+    title="WorkOS → Better Auth"
+    description="Transition from WorkOS with SSO and organization support"
+  />
+</CardGroup>
+
+## General Migration Strategy
+
+Regardless of which service you're migrating from, follow this general approach:
+
+### Phase 1: Planning
+
+<Steps>
+<Step>
+#### Audit Your Current Setup
+
+- Document all authentication methods in use (email/password, social providers, SSO)
+- List all custom fields on users, sessions, or organizations
+- Identify plugins or extensions you rely on
+- Review any custom authentication logic or hooks
+- Check which database you're using and its schema
+</Step>
+
+<Step>
+#### Choose Better Auth Features
+
+Map your current features to Better Auth equivalents:
+
+| Common Feature | Better Auth Solution |
+|----------------|---------------------|
+| Email/Password | `emailAndPassword` config |
+| Social OAuth | `socialProviders` config |
+| Email Verification | Built-in with `emailVerification` |
+| Password Reset | Built-in with `sendResetPassword` |
+| Two-Factor Auth | [Two-Factor Plugin](/plugins/2fa) |
+| Organizations/Teams | [Organization Plugin](/plugins/organization) |
+| SSO (SAML/OIDC) | [SSO Plugin](/plugins/sso) |
+| Multi-tenant | [Organization Plugin](/plugins/organization) + RBAC |
+| API Keys | [API Key Plugin](/plugins/api-key) |
+| Webhooks | [Hooks](/api/server/hooks) |
+| Admin Dashboard | [Admin Plugin](/plugins/admin) |
+| Device Sessions | [Multi-session Plugin](/plugins/multi-session) |
+
+</Step>
+
+<Step>
+#### Plan Database Migration
+
+Better Auth's core schema includes:
+
+- **user**: User accounts with email, name, image, timestamps
+- **session**: Active sessions with tokens and device info
+- **account**: OAuth accounts and password credentials
+- **verification**: Email verification and password reset tokens
+
+Review the [Database Concepts](/concepts/database) to understand the schema.
+</Step>
+</Steps>
+
+### Phase 2: Setup
+
+<Steps>
+<Step>
+#### Install Better Auth
+
+```bash
+pnpm add better-auth
+```
+
+See the [Installation Guide](/installation) for detailed instructions.
+</Step>
+
+<Step>
+#### Configure Better Auth
+
+Create your auth instance alongside your existing auth solution:
+
+```ts title="lib/auth.ts"
+import { betterAuth } from "better-auth";
+import { Pool } from "pg";
+
+export const auth = betterAuth({
+  database: new Pool({
+    connectionString: process.env.DATABASE_URL,
+  }),
+  emailAndPassword: {
+    enabled: true,
+  },
+  socialProviders: {
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID!,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+    },
+  },
+  // Add plugins as needed
+});
+```
+</Step>
+
+<Step>
+#### Generate Database Schema
+
+```bash
+npx @better-auth/cli generate
+```
+
+This creates the schema file for your database. Review it before applying.
+</Step>
+</Steps>
+
+### Phase 3: Data Migration
+
+<Callout type="warn">
+**Important:** Always test migrations in a staging environment first. Create database backups before running migration scripts in production.
+</Callout>
+
+<Steps>
+<Step>
+#### Export Existing Data
+
+Most services provide data export options:
+
+- **Clerk**: Dashboard → Users → Export to CSV + API for external accounts
+- **Auth0**: Management API or Dashboard export
+- **Supabase**: Direct database access via SQL
+- **Auth.js**: Already in your database
+</Step>
+
+<Step>
+#### Map Field Names
+
+Create a mapping between your current schema and Better Auth's schema:
+
+```ts title="scripts/field-mapping.ts"
+export const fieldMapping = {
+  // User fields
+  user: {
+    id: "id",
+    email: "email",
+    name: "name",
+    avatar: "image",
+    created_at: "createdAt",
+    updated_at: "updatedAt",
+    email_verified: "emailVerified",
+  },
+  // Account fields
+  account: {
+    provider: "providerId",
+    provider_account_id: "accountId",
+    access_token: "accessToken",
+    refresh_token: "refreshToken",
+    // ...
+  },
+};
+```
+</Step>
+
+<Step>
+#### Handle Password Hashing
+
+If migrating password hashes, configure Better Auth to use the same algorithm:
+
+<Tabs items={["bcrypt (Clerk)", "scrypt (Default)", "Argon2"]}>
+<Tab value="bcrypt (Clerk)">
+```ts title="auth.ts"
+import bcrypt from "bcrypt";
+
+export const auth = betterAuth({
+  emailAndPassword: {
+    enabled: true,
+    password: {
+      hash: async (password) => {
+        return await bcrypt.hash(password, 10);
+      },
+      verify: async ({ hash, password }) => {
+        return await bcrypt.compare(password, hash);
+      },
+    },
+  },
+});
+```
+</Tab>
+
+<Tab value="scrypt (Default)">
+```ts title="auth.ts"
+// No configuration needed - scrypt is the default
+export const auth = betterAuth({
+  emailAndPassword: {
+    enabled: true,
+  },
+});
+```
+</Tab>
+
+<Tab value="Argon2">
+```ts title="auth.ts"
+import * as argon2 from "argon2";
+
+export const auth = betterAuth({
+  emailAndPassword: {
+    enabled: true,
+    password: {
+      hash: async (password) => {
+        return await argon2.hash(password);
+      },
+      verify: async ({ hash, password }) => {
+        return await argon2.verify(hash, password);
+      },
+    },
+  },
+});
+```
+</Tab>
+</Tabs>
+</Step>
+
+<Step>
+#### Write Migration Script
+
+Create a script to migrate data in batches:
+
+```ts title="scripts/migrate.ts"
+import { auth } from "@/lib/auth";
+
+async function migrateUsers() {
+  const ctx = await auth.$context;
+  
+  // Fetch users from old system
+  const oldUsers = await fetchOldUsers();
+  
+  for (const oldUser of oldUsers) {
+    // Create user in Better Auth
+    await ctx.adapter.create({
+      model: "user",
+      data: {
+        id: oldUser.id,
+        email: oldUser.email,
+        name: oldUser.name,
+        image: oldUser.avatar_url,
+        emailVerified: oldUser.email_verified,
+        createdAt: new Date(oldUser.created_at),
+        updatedAt: new Date(oldUser.updated_at),
+      },
+      forceAllowId: true,
+    });
+    
+    // Migrate accounts (OAuth connections)
+    for (const account of oldUser.accounts) {
+      await ctx.adapter.create({
+        model: "account",
+        data: {
+          userId: oldUser.id,
+          accountId: account.provider_account_id,
+          providerId: mapProviderId(account.provider),
+          accessToken: account.access_token,
+          refreshToken: account.refresh_token,
+          // ...
+        },
+      });
+    }
+  }
+}
+
+migrateUsers()
+  .then(() => console.log("Migration complete"))
+  .catch(console.error);
+```
+</Step>
+
+<Step>
+#### Run Migration
+
+```bash
+bun run scripts/migrate.ts
+```
+
+Monitor for errors and validate the data after completion.
+</Step>
+</Steps>
+
+### Phase 4: Code Migration
+
+<Steps>
+<Step>
+#### Update Client Code
+
+Replace auth calls in your components:
+
+<Tabs items={["Before", "After"]}>
+<Tab value="Before">
+```tsx
+import { useSession, signIn, signOut } from "next-auth/react";
+
+function MyComponent() {
+  const { data: session } = useSession();
+  
+  return (
+    <button onClick={() => signIn("google")}>
+      Sign In
+    </button>
+  );
+}
+```
+</Tab>
+
+<Tab value="After">
+```tsx
+import { authClient } from "@/lib/auth-client";
+
+function MyComponent() {
+  const { data: session } = authClient.useSession();
+  
+  const handleSignIn = async () => {
+    await authClient.signIn.social({ provider: "google" });
+  };
+  
+  return (
+    <button onClick={handleSignIn}>
+      Sign In
+    </button>
+  );
+}
+```
+</Tab>
+</Tabs>
+</Step>
+
+<Step>
+#### Update Server Code
+
+Replace server-side auth checks:
+
+<Tabs items={["Before", "After"]}>
+<Tab value="Before">
+```ts
+import { auth } from "@/lib/auth";
+
+export default async function Page() {
+  const session = await auth();
+  
+  if (!session) {
+    redirect("/sign-in");
+  }
+  
+  return <div>Protected content</div>;
+}
+```
+</Tab>
+
+<Tab value="After">
+```ts
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
+
+export default async function Page() {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+  
+  if (!session) {
+    redirect("/sign-in");
+  }
+  
+  return <div>Protected content</div>;
+}
+```
+</Tab>
+</Tabs>
+</Step>
+
+<Step>
+#### Update Middleware
+
+Replace authentication middleware:
+
+```ts title="middleware.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { getSessionCookie } from "better-auth/cookies";
+
+export async function middleware(request: NextRequest) {
+  const sessionCookie = getSessionCookie(request);
+  const { pathname } = request.nextUrl;
+  
+  if (!sessionCookie && pathname.startsWith("/dashboard")) {
+    return NextResponse.redirect(new URL("/sign-in", request.url));
+  }
+  
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ["/dashboard/:path*"],
+};
+```
+</Step>
+</Steps>
+
+### Phase 5: Testing & Validation
+
+<Steps>
+<Step>
+#### Test Authentication Flows
+
+- [ ] Sign up with email/password
+- [ ] Sign in with email/password
+- [ ] Sign in with social providers
+- [ ] Password reset flow
+- [ ] Email verification
+- [ ] Two-factor authentication
+- [ ] Session management
+- [ ] Sign out
+</Step>
+
+<Step>
+#### Validate Migrated Data
+
+```sql
+-- Check user count
+SELECT COUNT(*) FROM user;
+
+-- Check accounts
+SELECT providerId, COUNT(*) FROM account GROUP BY providerId;
+
+-- Verify timestamps
+SELECT * FROM user WHERE createdAt IS NULL OR updatedAt IS NULL;
+```
+</Step>
+
+<Step>
+#### Test Edge Cases
+
+- Users with multiple social accounts
+- Users with no password (social-only)
+- Users with special characters in data
+- Expired sessions
+- Invalid tokens
+</Step>
+</Steps>
+
+### Phase 6: Deployment
+
+<Steps>
+<Step>
+#### Deploy to Staging
+
+Run the full migration in a staging environment:
+
+1. Deploy Better Auth code
+2. Run migration script
+3. Test thoroughly
+4. Monitor for issues
+</Step>
+
+<Step>
+#### Plan Production Migration
+
+<Callout type="warn">
+**Note:** Existing sessions will be invalidated. Plan for:
+- Off-peak deployment window
+- User communication about re-authentication
+- Support team readiness
+</Callout>
+
+Consider these strategies:
+
+- **Hard cutover**: Migrate all at once (simpler, but all users must re-authenticate)
+- **Gradual rollout**: Keep old system running, migrate users on next login
+- **Parallel running**: Run both systems temporarily with session synchronization
+</Step>
+
+<Step>
+#### Execute Production Migration
+
+1. Create database backup
+2. Deploy Better Auth application code
+3. Run migration script
+4. Verify data integrity
+5. Switch traffic to new system
+6. Monitor error logs and user reports
+</Step>
+
+<Step>
+#### Clean Up
+
+After confirming stability:
+
+1. Remove old authentication code
+2. Uninstall old auth packages
+3. Remove unused environment variables
+4. Update documentation
+5. Archive migration scripts
+</Step>
+</Steps>
+
+## Common Migration Challenges
+
+### Session Invalidation
+
+**Problem:** All users must re-authenticate after migration.
+
+**Solutions:**
+- Communicate the change in advance via email
+- Provide clear re-authentication instructions
+- Consider keeping old session validation temporarily
+- Implement "Remember Me" to reduce friction
+
+### Password Hash Compatibility
+
+**Problem:** Different hashing algorithms between systems.
+
+**Solutions:**
+- Configure Better Auth to use the same algorithm (see examples above)
+- Or: Implement gradual password rehashing on login
+- Or: Force password reset for all users (less ideal UX)
+
+### Custom Fields
+
+**Problem:** Custom user fields don't exist in Better Auth core schema.
+
+**Solution:** Extend the schema:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (user) => {
+          return {
+            data: {
+              ...user,
+              customField: "value",
+            },
+          };
+        },
+      },
+    },
+  },
+});
+```
+
+See [Custom Fields Guide](/guides/custom-fields) for details.
+
+### OAuth Provider Differences
+
+**Problem:** Provider IDs or configurations differ.
+
+**Solution:** Map provider names in migration:
+
+```ts
+function mapProviderId(oldProvider: string): string {
+  const mapping: Record<string, string> = {
+    "oauth_google": "google",
+    "oauth_github": "github",
+    "credential": "email-password",
+  };
+  return mapping[oldProvider] || oldProvider;
+}
+```
+
+### Organization/Team Data
+
+**Problem:** Multi-tenant or organization structures differ.
+
+**Solution:** Use the [Organization Plugin](/plugins/organization) and map your structure:
+
+```ts
+// Migrate organizations
+for (const oldOrg of oldOrganizations) {
+  await ctx.adapter.create({
+    model: "organization",
+    data: {
+      id: oldOrg.id,
+      name: oldOrg.name,
+      slug: oldOrg.slug,
+      createdAt: new Date(oldOrg.created_at),
+    },
+  });
+  
+  // Migrate members
+  for (const member of oldOrg.members) {
+    await ctx.adapter.create({
+      model: "member",
+      data: {
+        organizationId: oldOrg.id,
+        userId: member.user_id,
+        role: member.role,
+      },
+    });
+  }
+}
+```
+
+## Migration Checklist
+
+Use this checklist to track your migration progress:
+
+- [ ] Audit current authentication setup
+- [ ] Choose Better Auth features and plugins
+- [ ] Install Better Auth
+- [ ] Configure auth instance
+- [ ] Generate database schema
+- [ ] Create field mapping
+- [ ] Write migration script
+- [ ] Test migration in development
+- [ ] Test migration in staging
+- [ ] Update client components
+- [ ] Update server code
+- [ ] Update middleware
+- [ ] Test all authentication flows
+- [ ] Validate migrated data
+- [ ] Plan production deployment
+- [ ] Communicate with users
+- [ ] Execute production migration
+- [ ] Monitor for issues
+- [ ] Remove old authentication code
+- [ ] Update documentation
+
+## Getting Help
+
+If you encounter issues during migration:
+
+- Check the [Troubleshooting Guide](/resources/troubleshooting)
+- Review [Common Errors](/reference/errors)
+- Ask in [Discord](https://discord.gg/better-auth)
+- Email [contact@better-auth.com](mailto:contact@better-auth.com)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    href="/guides/clerk-migration-guide"
+    title="Clerk Migration"
+    description="Detailed guide for Clerk users"
+  />
+  <Card
+    href="/guides/next-auth-migration-guide"
+    title="Auth.js Migration"
+    description="Detailed guide for Auth.js users"
+  />
+  <Card
+    href="/concepts/database"
+    title="Database Schema"
+    description="Understand Better Auth's database structure"
+  />
+  <Card
+    href="/plugins/overview"
+    title="Available Plugins"
+    description="Explore features you can add"
+  />
+</CardGroup>

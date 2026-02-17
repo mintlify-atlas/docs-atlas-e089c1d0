@@ -1,0 +1,927 @@
+---
+title: Troubleshooting
+description: Common issues and solutions when working with Better Auth.
+---
+
+This guide covers common issues you might encounter when using Better Auth and how to resolve them.
+
+## Installation & Setup Issues
+
+### Module Not Found Errors
+
+**Problem:** `Cannot find module 'better-auth'` or similar import errors.
+
+**Solutions:**
+
+<Steps>
+<Step>
+Ensure Better Auth is installed:
+
+```bash
+pnpm install better-auth
+```
+</Step>
+
+<Step>
+Verify the import path matches your environment:
+
+```ts
+// Client-side (React)
+import { createAuthClient } from "better-auth/react";
+
+// Client-side (other frameworks)
+import { createAuthClient } from "better-auth/client";
+
+// Server-side
+import { betterAuth } from "better-auth";
+```
+</Step>
+
+<Step>
+Clear your build cache:
+
+```bash
+rm -rf .next node_modules/.cache
+pnpm install
+```
+</Step>
+</Steps>
+
+### TypeScript Errors
+
+**Problem:** Type errors or `strict` mode issues.
+
+**Solution:** Enable `strict` or `strictNullChecks` in `tsconfig.json`:
+
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "strict": true,
+    // OR at minimum:
+    "strictNullChecks": true
+  }
+}
+```
+
+See [TypeScript Configuration](/concepts/typescript#typescript-config) for more details.
+
+### Database Connection Errors
+
+**Problem:** `Connection refused` or database timeout errors.
+
+**Solutions:**
+
+<Accordion title="PostgreSQL/MySQL">
+1. Verify connection string format:
+
+```bash
+# PostgreSQL
+DATABASE_URL="postgresql://user:password@localhost:5432/dbname"
+
+# MySQL
+DATABASE_URL="mysql://user:password@localhost:3306/dbname"
+```
+
+2. Test connection directly:
+
+```ts
+import { Pool } from "pg";
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+try {
+  const res = await pool.query("SELECT NOW()");
+  console.log("Connected:", res.rows[0]);
+} catch (error) {
+  console.error("Connection failed:", error);
+}
+```
+
+3. Check firewall and network settings
+4. Ensure database server is running
+</Accordion>
+
+<Accordion title="SQLite">
+1. Ensure the directory exists:
+
+```bash
+mkdir -p ./data
+```
+
+2. Use proper SQLite dialect:
+
+```ts
+import { LibsqlDialect } from "@libsql/kysely-libsql";
+import Database from "better-sqlite3";
+
+export const auth = betterAuth({
+  database: {
+    dialect: new LibsqlDialect({
+      url: "file:./data/auth.db",
+    }),
+    type: "sqlite",
+  },
+});
+```
+</Accordion>
+
+<Accordion title="Cloudflare D1">
+1. Ensure `nodejs_compat` flag is enabled:
+
+```toml title="wrangler.toml"
+compatibility_flags = ["nodejs_compat"]
+```
+
+2. Bind D1 database in wrangler config:
+
+```toml title="wrangler.toml"
+[[d1_databases]]
+binding = "DB"
+database_name = "my-database"
+database_id = "your-database-id"
+```
+
+3. Pass database from environment:
+
+```ts
+export const auth = betterAuth({
+  database: env.DB,
+});
+```
+</Accordion>
+
+## Session & Authentication Issues
+
+### Sessions Not Persisting
+
+**Problem:** User is signed out after page refresh.
+
+**Solutions:**
+
+<Steps>
+<Step>
+Check cookie settings in browser DevTools (Application → Cookies). Ensure:
+- Cookie is being set
+- Cookie has correct domain
+- Cookie is not expired
+- Cookie has `HttpOnly` and `Secure` flags (in production)
+</Step>
+
+<Step>
+Verify `baseURL` is correctly configured:
+
+```ts title="auth-client.ts"
+import { createAuthClient } from "better-auth/react";
+
+export const authClient = createAuthClient({
+  baseURL: process.env.NEXT_PUBLIC_APP_URL, // Must match your app URL
+});
+```
+</Step>
+
+<Step>
+Check CORS configuration for cross-origin requests:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  trustedOrigins: [
+    "http://localhost:3000",
+    "https://yourdomain.com",
+  ],
+});
+```
+</Step>
+
+<Step>
+For development with HTTPS:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  advanced: {
+    useSecureCookies: process.env.NODE_ENV === "production",
+  },
+});
+```
+</Step>
+</Steps>
+
+### `getSession` Returns Null
+
+**Problem:** `authClient.getSession()` returns null on server components.
+
+**Solution:** Pass request headers when calling `getSession` on the server:
+
+```tsx title="app/page.tsx"
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
+
+export default async function Page() {
+  const session = await auth.api.getSession({
+    headers: await headers(), // Required for server-side
+  });
+  
+  return <div>{session?.user.name}</div>;
+}
+```
+
+See the [FAQ](/reference/faq#getsession-not-working) for more details.
+
+### Dual Module Hazard
+
+**Problem:** `No request state found` or multiple Better Auth instances.
+
+**This is a critical issue** - see the detailed solution in the [FAQ](/reference/faq#dual-module-hazard-issue).
+
+**Quick Fix:**
+
+<Tabs items={["Next.js", "Cloudflare", "Package Manager"]}>
+<Tab value="Next.js">
+```ts title="next.config.js"
+const config = {
+  serverExternalPackages: ["better-auth"],
+};
+
+export default config;
+```
+</Tab>
+
+<Tab value="Cloudflare">
+```toml title="wrangler.toml"
+compatibility_flags = ["nodejs_compat"]
+```
+</Tab>
+
+<Tab value="Package Manager">
+```bash
+# Clean install
+rm -rf node_modules pnpm-lock.yaml
+pnpm install
+
+# Check for duplicates
+pnpm why better-auth
+pnpm why @better-auth/core
+```
+</Tab>
+</Tabs>
+
+## OAuth & Social Login Issues
+
+### OAuth Callback Errors
+
+**Problem:** `state_mismatch`, `no_code`, or `invalid_callback_request` errors.
+
+**Solutions:**
+
+<Accordion title="State Mismatch">
+Caused by OAuth state parameter mismatch.
+
+**Fixes:**
+- Clear browser cookies and try again
+- Ensure callback URL matches exactly (including trailing slash)
+- Check that your app URL is consistent across environments
+- Verify cookie settings allow cross-domain cookies
+
+See [state_mismatch error](/reference/errors/state_mismatch) for details.
+</Accordion>
+
+<Accordion title="No Code Parameter">
+OAuth provider didn't return authorization code.
+
+**Fixes:**
+- Verify redirect URI in provider settings matches your callback URL
+- Check that the provider app is enabled and not in development mode
+- Ensure required scopes are approved by provider
+- Test with a different browser to rule out extensions
+
+See [no_code error](/reference/errors/no_code) for details.
+</Accordion>
+
+<Accordion title="Invalid Callback Request">
+Callback request is malformed or missing parameters.
+
+**Fixes:**
+- Verify OAuth provider configuration in your code
+- Check that client ID and secret are correct
+- Ensure callback URL is registered with the provider
+- Review provider's error logs for specific issues
+
+See [invalid_callback_request error](/reference/errors/invalid_callback_request) for details.
+</Accordion>
+
+### Redirect URI Mismatch
+
+**Problem:** Provider shows "Redirect URI mismatch" error.
+
+**Solution:**
+
+<Steps>
+<Step>
+Note the callback URL pattern Better Auth uses:
+
+```
+https://yourdomain.com/api/auth/callback/[provider]
+```
+
+Examples:
+- GitHub: `https://yourdomain.com/api/auth/callback/github`
+- Google: `https://yourdomain.com/api/auth/callback/google`
+</Step>
+
+<Step>
+Add the exact URL to provider settings:
+
+- **GitHub:** Settings → Developer settings → OAuth Apps → Authorization callback URL
+- **Google:** Google Cloud Console → APIs & Services → Credentials → Authorized redirect URIs
+- **Discord:** Discord Developer Portal → OAuth2 → Redirects
+</Step>
+
+<Step>
+For development, add both localhost and production URLs:
+
+```
+http://localhost:3000/api/auth/callback/github
+https://yourdomain.com/api/auth/callback/github
+```
+</Step>
+</Steps>
+
+### Cannot Link Account
+
+**Problem:** `unable_to_link_account` error when trying to connect social account.
+
+**Causes:**
+1. Provider not in `trustedProviders` list
+2. Account already linked to different user
+3. Database write failure
+
+**Solution:**
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  account: {
+    accountLinking: {
+      trustedProviders: [
+        "github",
+        "google",
+        "discord",
+        // Add all providers you want to allow linking
+      ],
+    },
+  },
+});
+```
+
+See [unable_to_link_account error](/reference/errors/unable_to_link_account) for more details.
+
+### Account Already Linked
+
+**Problem:** `account_already_linked_to_different_user` error.
+
+**This means:** The OAuth account is already connected to another user.
+
+**Solutions:**
+1. Sign in as the other user and unlink the account first
+2. Merge the two user accounts if they belong to the same person
+3. Use a different social account
+
+See [account_already_linked_to_different_user error](/reference/errors/account_already_linked_to_different_user) for details.
+
+## Database & Migration Issues
+
+### Migration Fails
+
+**Problem:** `npx @better-auth/cli migrate` fails or hangs.
+
+**Solutions:**
+
+<Accordion title="Connection Issues">
+Ensure your auth config can be imported:
+
+```bash
+# Test import
+node --input-type=module -e 'import("./lib/auth")'
+```
+
+If this fails, fix any errors in your auth configuration first.
+</Accordion>
+
+<Accordion title="Cloudflare Workers">
+Cloudflare Workers can't run CLI migrations because environment variables aren't available at build time.
+
+**Solution:** Use programmatic migrations:
+
+```ts title="app/migrate/route.ts"
+import { auth } from "@/lib/auth";
+
+export async function POST(request: Request) {
+  const migrated = await auth.$context.then((ctx) => ctx.migrate());
+  
+  if (migrated) {
+    return Response.json({ message: "Migration complete" });
+  }
+  
+  return Response.json({ message: "No migrations needed" });
+}
+```
+
+Call once after deployment, then remove or protect the endpoint.
+</Accordion>
+
+<Accordion title="Schema Conflicts">
+If you have existing tables with conflicting names:
+
+1. Use a custom table prefix:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  advanced: {
+    generateSchema: {
+      tablePrefix: "auth_",
+    },
+  },
+});
+```
+
+2. Or manually modify the generated schema before applying
+</Accordion>
+
+### Schema Out of Sync
+
+**Problem:** Database schema doesn't match Better Auth expectations.
+
+**Solution:**
+
+<Steps>
+<Step>
+Regenerate schema:
+
+```bash
+npx @better-auth/cli generate
+```
+</Step>
+
+<Step>
+Review the generated schema file and check for differences.
+</Step>
+
+<Step>
+Run migration:
+
+```bash
+npx @better-auth/cli migrate
+```
+</Step>
+
+<Step>
+If using custom fields, ensure they're properly configured in your auth instance.
+</Step>
+</Steps>
+
+### Custom Fields Not Working
+
+**Problem:** Custom user/session fields aren't persisted or typed correctly.
+
+**Solution:**
+
+Follow the [Custom Fields Guide](/guides/custom-fields):
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth";
+
+export const auth = betterAuth({
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (user) => {
+          return {
+            data: {
+              ...user,
+              customField: "default-value",
+            },
+          };
+        },
+      },
+    },
+  },
+});
+```
+
+And extend types:
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth";
+
+export const auth = betterAuth({
+  /* config */
+});
+
+export type Session = typeof auth.$Infer.Session;
+```
+
+## Plugin-Specific Issues
+
+### Two-Factor Authentication
+
+**Problem:** QR code not generating or TOTP codes not working.
+
+**Solutions:**
+
+<Steps>
+<Step>
+Ensure the two-factor plugin is installed:
+
+```bash
+pnpm add @better-auth/two-factor
+```
+</Step>
+
+<Step>
+Verify plugin configuration:
+
+```ts title="auth.ts"
+import { twoFactor } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    twoFactor({
+      issuer: "Your App Name",
+    }),
+  ],
+});
+```
+</Step>
+
+<Step>
+Check that time is synchronized on both server and client (TOTP is time-based).
+</Step>
+
+<Step>
+Verify the TOTP library is compatible:
+
+```bash
+pnpm add otpauth
+```
+</Step>
+</Steps>
+
+### Organization Plugin
+
+**Problem:** Users can't create or join organizations.
+
+**Solutions:**
+
+<Steps>
+<Step>
+Ensure tables were created:
+
+```bash
+npx @better-auth/cli migrate
+```
+
+This should create `organization`, `member`, and `invitation` tables.
+</Step>
+
+<Step>
+Verify plugin is configured:
+
+```ts title="auth.ts"
+import { organization } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    organization({
+      async sendInvitationEmail(data) {
+        // Implement email sending
+      },
+    }),
+  ],
+});
+```
+</Step>
+
+<Step>
+Check that client has the organization plugin:
+
+```ts title="auth-client.ts"
+import { createAuthClient } from "better-auth/react";
+import { organizationClient } from "better-auth/client/plugins";
+
+export const authClient = createAuthClient({
+  plugins: [organizationClient()],
+});
+```
+</Step>
+</Steps>
+
+### Passkey Issues
+
+**Problem:** Passkey registration or authentication fails.
+
+**Solutions:**
+
+<Accordion title="HTTPS Required">
+WebAuthn (passkeys) requires HTTPS in production.
+
+- Use HTTPS in production
+- For local development, use `localhost` (allowed without HTTPS)
+- Or use a tunneling service like ngrok
+</Accordion>
+
+<Accordion title="RP ID Mismatch">
+Relying Party ID must match your domain:
+
+```ts title="auth.ts"
+import { passkey } from "@better-auth/passkey";
+
+export const auth = betterAuth({
+  plugins: [
+    passkey({
+      rpID: "yourdomain.com", // No protocol or port
+      rpName: "Your App",
+    }),
+  ],
+});
+```
+</Accordion>
+
+<Accordion title="Browser Support">
+Ensure the browser supports WebAuthn:
+
+```ts
+if (!window.PublicKeyCredential) {
+  alert("Your browser doesn't support passkeys");
+}
+```
+
+See [browser compatibility](https://caniuse.com/webauthn).
+</Accordion>
+
+## Performance Issues
+
+### Slow Session Checks
+
+**Problem:** `getSession` calls are slow.
+
+**Solutions:**
+
+<Steps>
+<Step>
+Use stateless sessions (JWT) instead of database sessions:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  session: {
+    strategy: "jwt",
+  },
+});
+```
+</Step>
+
+<Step>
+Add database indexes on frequently queried fields:
+
+```sql
+CREATE INDEX idx_session_token ON session(token);
+CREATE INDEX idx_session_user_id ON session(userId);
+CREATE INDEX idx_session_expires ON session(expiresAt);
+```
+</Step>
+
+<Step>
+Enable connection pooling for your database adapter.
+</Step>
+</Steps>
+
+### Large Bundle Size
+
+**Problem:** Better Auth increases bundle size significantly.
+
+**Solutions:**
+
+<Steps>
+<Step>
+Ensure tree-shaking is working:
+
+```ts
+// Good - imports only what's needed
+import { createAuthClient } from "better-auth/react";
+
+// Bad - imports entire package
+import * as betterAuth from "better-auth";
+```
+</Step>
+
+<Step>
+For Next.js, add Better Auth to `serverExternalPackages`:
+
+```ts title="next.config.js"
+export default {
+  serverExternalPackages: ["better-auth"],
+};
+```
+</Step>
+
+<Step>
+Analyze bundle:
+
+```bash
+pnpm build
+npx @next/bundle-analyzer
+```
+</Step>
+</Steps>
+
+## Development Environment Issues
+
+### Hot Reload Problems
+
+**Problem:** Changes to auth config not reflected during development.
+
+**Solution:**
+
+<Steps>
+<Step>
+Restart the development server completely.
+</Step>
+
+<Step>
+Clear Next.js cache:
+
+```bash
+rm -rf .next
+pnpm dev
+```
+</Step>
+
+<Step>
+For particularly stubborn issues, clear node_modules:
+
+```bash
+rm -rf node_modules/.cache
+```
+</Step>
+</Steps>
+
+### Environment Variables Not Loading
+
+**Problem:** `process.env` values are undefined.
+
+**Solutions:**
+
+<Accordion title="Next.js">
+1. Prefix client-side variables with `NEXT_PUBLIC_`:
+
+```bash
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+DATABASE_URL=postgresql://...
+```
+
+2. Restart dev server after adding variables
+
+3. For App Router, ensure you're not accessing server variables on the client
+</Accordion>
+
+<Accordion title="Cloudflare Workers">
+1. Add to `wrangler.toml`:
+
+```toml
+[vars]
+BETTER_AUTH_SECRET = "your-secret"
+```
+
+2. Or use `.dev.vars` for local development:
+
+```bash
+BETTER_AUTH_SECRET=your-secret
+```
+
+3. Pass from environment:
+
+```ts
+export const auth = betterAuth({
+  secret: env.BETTER_AUTH_SECRET,
+});
+```
+</Accordion>
+
+## Production Issues
+
+### Rate Limiting
+
+**Problem:** Too many requests error (429).
+
+**Solution:**
+
+Configure rate limiting:
+
+```ts title="auth.ts"
+import { rateLimit } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  plugins: [
+    rateLimit({
+      window: 60, // seconds
+      max: 10, // requests per window
+    }),
+  ],
+});
+```
+
+See [Rate Limiting Guide](/guides/rate-limiting).
+
+### Memory Leaks
+
+**Problem:** Memory usage grows over time.
+
+**Solutions:**
+
+<Steps>
+<Step>
+Ensure database connections are properly closed:
+
+```ts
+// Use connection pooling
+import { Pool } from "pg";
+
+const pool = new Pool({
+  max: 20, // Maximum connections
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+```
+</Step>
+
+<Step>
+Clear expired sessions periodically:
+
+```ts
+// Run as a cron job
+import { auth } from "@/lib/auth";
+
+export async function clearExpiredSessions() {
+  const ctx = await auth.$context;
+  await ctx.adapter.deleteMany({
+    model: "session",
+    where: [
+      {
+        field: "expiresAt",
+        operator: "lt",
+        value: new Date(),
+      },
+    ],
+  });
+}
+```
+</Step>
+
+<Step>
+Monitor with tools like:
+- Node.js `process.memoryUsage()`
+- PM2 monitoring
+- Cloud provider metrics
+</Step>
+</Steps>
+
+## Getting More Help
+
+If your issue isn't covered here:
+
+<CardGroup cols={2}>
+  <Card
+    href="/reference/errors"
+    title="Error Reference"
+    description="Detailed error messages and solutions"
+  />
+  <Card
+    href="/reference/faq"
+    title="FAQ"
+    description="Frequently asked questions"
+  />
+  <Card
+    href="https://discord.gg/better-auth"
+    title="Discord Community"
+    description="Get help from the community"
+  />
+  <Card
+    href="https://github.com/better-auth/better-auth/issues"
+    title="GitHub Issues"
+    description="Report bugs or request features"
+  />
+</CardGroup>
+
+### Reporting Issues
+
+When reporting an issue, please include:
+
+1. Better Auth version (`pnpm list better-auth`)
+2. Framework and version (e.g., Next.js 15.1.0)
+3. Database type and adapter
+4. Minimal reproduction code
+5. Full error message and stack trace
+6. Steps to reproduce
+
+### Security Issues
+
+For security vulnerabilities, email [security@better-auth.com](mailto:security@better-auth.com) instead of posting publicly.

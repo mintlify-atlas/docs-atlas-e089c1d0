@@ -1,0 +1,877 @@
+---
+title: 'Creating Custom Plugins'
+description: 'Build your own Better Auth plugins to extend functionality'
+icon: 'wrench'
+---
+
+## Overview
+
+Custom plugins allow you to extend Better Auth with your own authentication flows, data models, and business logic. This guide walks through creating a production-ready plugin.
+
+<Note>
+Before creating a custom plugin, check if existing plugins meet your needs. Composing existing plugins is often simpler than building from scratch.
+</Note>
+
+## Plugin Structure
+
+A Better Auth plugin is an object that implements the `BetterAuthPlugin` interface:
+
+```typescript
+import type { BetterAuthPlugin } from "better-auth";
+
+export interface BetterAuthPlugin {
+  // Unique identifier for your plugin
+  id: string;
+  
+  // Initialize plugin (runs at startup)
+  init?: (ctx: AuthContext) => Awaitable<void | ContextReturn>;
+  
+  // API endpoints
+  endpoints?: Record<string, Endpoint>;
+  
+  // Database schema
+  schema?: BetterAuthPluginDBSchema;
+  
+  // Request hooks
+  hooks?: {
+    before?: HookHandler[];
+    after?: HookHandler[];
+  };
+  
+  // Path-specific middleware
+  middlewares?: Array<{
+    path: string;
+    middleware: Middleware;
+  }>;
+  
+  // Rate limiting rules
+  rateLimit?: RateLimitRule[];
+  
+  // Plugin configuration options
+  options?: Record<string, any>;
+  
+  // Type inference helpers
+  $Infer?: Record<string, any>;
+  
+  // Custom error codes
+  $ERROR_CODES?: Record<string, string>;
+}
+```
+
+## Basic Plugin Example
+
+Let's create a simple plugin that tracks user login attempts:
+
+<Steps>
+  <Step title="Define the plugin structure">
+    Start by creating the main plugin file:
+    
+    ```typescript plugins/login-tracker/index.ts
+    import type { BetterAuthPlugin } from "@better-auth/core";
+    import { createAuthEndpoint } from "@better-auth/core/api";
+    import { z } from "zod";
+    
+    export interface LoginTrackerOptions {
+      // Max failed attempts before lockout
+      maxAttempts?: number;
+      // Lockout duration in seconds
+      lockoutDuration?: number;
+    }
+    
+    export const loginTracker = (options?: LoginTrackerOptions) => {
+      const opts = {
+        maxAttempts: 5,
+        lockoutDuration: 900, // 15 minutes
+        ...options,
+      };
+      
+      return {
+        id: "login-tracker",
+        options: opts,
+      } satisfies BetterAuthPlugin;
+    };
+    ```
+  </Step>
+  
+  <Step title="Add database schema">
+    Define the data model for tracking attempts:
+    
+    ```typescript plugins/login-tracker/schema.ts
+    import type { BetterAuthPluginDBSchema } from "@better-auth/core/db";
+    
+    export const schema = {
+      loginAttempt: {
+        fields: {
+          userId: {
+            type: "string",
+            required: true,
+            references: {
+              model: "user",
+              field: "id",
+            },
+            index: true,
+          },
+          attemptedAt: {
+            type: "date",
+            required: true,
+          },
+          successful: {
+            type: "boolean",
+            required: true,
+          },
+          ipAddress: {
+            type: "string",
+            required: false,
+          },
+          userAgent: {
+            type: "string",
+            required: false,
+          },
+        },
+      },
+      lockout: {
+        fields: {
+          userId: {
+            type: "string",
+            required: true,
+            unique: true,
+            references: {
+              model: "user",
+              field: "id",
+            },
+          },
+          lockedUntil: {
+            type: "date",
+            required: true,
+          },
+          attemptCount: {
+            type: "number",
+            required: true,
+          },
+        },
+      },
+    } satisfies BetterAuthPluginDBSchema;
+    ```
+  </Step>
+  
+  <Step title="Implement hooks">
+    Add hooks to track login attempts:
+    
+    ```typescript plugins/login-tracker/index.ts
+    import { createAuthMiddleware } from "@better-auth/core/api";
+    import { schema } from "./schema";
+    
+    export const loginTracker = (options?: LoginTrackerOptions) => {
+      const opts = {
+        maxAttempts: 5,
+        lockoutDuration: 900,
+        ...options,
+      };
+      
+      return {
+        id: "login-tracker",
+        schema,
+        hooks: {
+          before: [
+            {
+              // Check for lockout before sign-in
+              matcher: (ctx) => ctx.path === "/sign-in/email",
+              handler: createAuthMiddleware(async (ctx) => {
+                const email = ctx.body.email;
+                const user = await ctx.context.internalAdapter
+                  .findUserByEmail(email)
+                  .then((res) => res?.user);
+                
+                if (!user) return;
+                
+                // Check if user is locked out
+                const lockout = await ctx.context.adapter.findOne({
+                  model: "lockout",
+                  where: [{ field: "userId", value: user.id }],
+                });
+                
+                if (lockout && new Date(lockout.lockedUntil) > new Date()) {
+                  throw ctx.error("TOO_MANY_REQUESTS", {
+                    message: "Account temporarily locked. Try again later.",
+                  });
+                }
+              }),
+            },
+          ],
+          after: [
+            {
+              // Track attempt after sign-in
+              matcher: (ctx) => ctx.path === "/sign-in/email",
+              handler: createAuthMiddleware(async (ctx) => {
+                const email = ctx.body.email;
+                const user = await ctx.context.internalAdapter
+                  .findUserByEmail(email)
+                  .then((res) => res?.user);
+                
+                if (!user) return;
+                
+                const successful = !!ctx.context.newSession;
+                const ipAddress = ctx.request.headers.get("x-forwarded-for");
+                const userAgent = ctx.request.headers.get("user-agent");
+                
+                // Record attempt
+                await ctx.context.adapter.create({
+                  model: "loginAttempt",
+                  data: {
+                    userId: user.id,
+                    attemptedAt: new Date(),
+                    successful,
+                    ipAddress: ipAddress || undefined,
+                    userAgent: userAgent || undefined,
+                  },
+                });
+                
+                if (!successful) {
+                  // Count recent failed attempts
+                  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+                  const failedAttempts = await ctx.context.adapter.findMany({
+                    model: "loginAttempt",
+                    where: [
+                      { field: "userId", value: user.id },
+                      { field: "successful", value: false },
+                      { field: "attemptedAt", operator: "gt", value: fiveMinutesAgo },
+                    ],
+                  });
+                  
+                  if (failedAttempts.length >= opts.maxAttempts) {
+                    // Lock the account
+                    const lockedUntil = new Date(
+                      Date.now() + opts.lockoutDuration * 1000
+                    );
+                    
+                    await ctx.context.adapter.create({
+                      model: "lockout",
+                      data: {
+                        userId: user.id,
+                        lockedUntil,
+                        attemptCount: failedAttempts.length,
+                      },
+                    });
+                  }
+                } else {
+                  // Clear lockout on successful login
+                  await ctx.context.adapter.deleteMany({
+                    model: "lockout",
+                    where: [{ field: "userId", value: user.id }],
+                  });
+                }
+              }),
+            },
+          ],
+        },
+        options: opts,
+      } satisfies BetterAuthPlugin;
+    };
+    ```
+  </Step>
+  
+  <Step title="Add custom endpoints">
+    Create endpoints for querying login history:
+    
+    ```typescript plugins/login-tracker/index.ts
+    export const loginTracker = (options?: LoginTrackerOptions) => {
+      // ... previous code
+      
+      return {
+        id: "login-tracker",
+        schema,
+        hooks: { /* ... */ },
+        endpoints: {
+          getLoginHistory: createAuthEndpoint(
+            "/login-tracker/history",
+            {
+              method: "GET",
+              query: z.object({
+                limit: z.number().optional(),
+              }),
+              use: [sessionMiddleware],
+            },
+            async (ctx) => {
+              const userId = ctx.context.session.user.id;
+              const limit = ctx.query.limit || 10;
+              
+              const attempts = await ctx.context.adapter.findMany({
+                model: "loginAttempt",
+                where: [{ field: "userId", value: userId }],
+                limit,
+                sortBy: { field: "attemptedAt", direction: "desc" },
+              });
+              
+              return ctx.json({ attempts });
+            }
+          ),
+        },
+      } satisfies BetterAuthPlugin;
+    };
+    ```
+  </Step>
+</Steps>
+
+## Advanced Plugin Features
+
+### Plugin Initialization
+
+Use the `init` function to set up services or modify context:
+
+```typescript
+import type { BetterAuthPlugin } from "better-auth";
+
+const analyticsPlugin: BetterAuthPlugin = {
+  id: "analytics",
+  init: async (ctx) => {
+    // Initialize external services
+    const analytics = await initAnalytics({
+      apiKey: process.env.ANALYTICS_KEY,
+    });
+    
+    // Add to context for use in other handlers
+    return {
+      context: {
+        analytics,
+      },
+    };
+  },
+  hooks: {
+    after: [
+      {
+        matcher: () => true,
+        handler: async (ctx) => {
+          // Access analytics from context
+          await ctx.context.analytics?.track({
+            event: "auth_event",
+            path: ctx.path,
+          });
+        },
+      },
+    ],
+  },
+};
+```
+
+### Request/Response Interceptors
+
+Intercept all requests and responses:
+
+```typescript
+const securityPlugin: BetterAuthPlugin = {
+  id: "security",
+  // Intercept incoming requests
+  onRequest: async (request, ctx) => {
+    const suspicious = await checkForSuspiciousActivity(request);
+    
+    if (suspicious) {
+      return {
+        response: new Response("Forbidden", { status: 403 }),
+      };
+    }
+    
+    // Modify request if needed
+    const newHeaders = new Headers(request.headers);
+    newHeaders.set("X-Request-Id", generateId());
+    
+    return {
+      request: new Request(request, { headers: newHeaders }),
+    };
+  },
+  
+  // Intercept outgoing responses
+  onResponse: async (response, ctx) => {
+    // Add security headers
+    const headers = new Headers(response.headers);
+    headers.set("X-Content-Type-Options", "nosniff");
+    headers.set("X-Frame-Options", "DENY");
+    
+    return {
+      response: new Response(response.body, {
+        status: response.status,
+        headers,
+      }),
+    };
+  },
+};
+```
+
+### Custom Adapter Methods
+
+Add database operations specific to your plugin:
+
+```typescript
+const subscriptionPlugin: BetterAuthPlugin = {
+  id: "subscription",
+  schema: {
+    subscription: {
+      fields: {
+        userId: {
+          type: "string",
+          required: true,
+          references: { model: "user", field: "id" },
+        },
+        planId: {
+          type: "string",
+          required: true,
+        },
+        status: {
+          type: "string",
+          required: true,
+        },
+        expiresAt: {
+          type: "date",
+          required: true,
+        },
+      },
+    },
+  },
+  adapter: {
+    // Custom adapter method
+    async getActiveSubscription(userId: string) {
+      const subscription = await this.adapter.findOne({
+        model: "subscription",
+        where: [
+          { field: "userId", value: userId },
+          { field: "status", value: "active" },
+          { field: "expiresAt", operator: "gt", value: new Date() },
+        ],
+      });
+      return subscription;
+    },
+  },
+};
+```
+
+### Type Inference
+
+Provide TypeScript types for plugin data:
+
+```typescript
+import type { BetterAuthPlugin } from "better-auth";
+import type { Infer } from "@better-auth/core/db";
+
+interface SubscriptionOptions {
+  plans: {
+    [key: string]: {
+      name: string;
+      price: number;
+    };
+  };
+}
+
+export const subscription = <O extends SubscriptionOptions>(
+  options: O
+) => {
+  return {
+    id: "subscription",
+    schema: {
+      subscription: {
+        fields: {
+          userId: { type: "string", required: true },
+          planId: { type: "string", required: true },
+          status: { type: "string", required: true },
+        },
+      },
+    },
+    $Infer: {
+      Subscription: {} as Infer<typeof schema.subscription>,
+    },
+    options,
+  } satisfies BetterAuthPlugin;
+};
+
+// Usage with type inference
+const auth = betterAuth({
+  plugins: [
+    subscription({
+      plans: {
+        basic: { name: "Basic", price: 9.99 },
+        pro: { name: "Pro", price: 29.99 },
+      },
+    }),
+  ],
+});
+
+type Subscription = typeof auth.$Infer.Subscription;
+```
+
+### Error Codes
+
+Define custom error codes for your plugin:
+
+```typescript
+export const SUBSCRIPTION_ERROR_CODES = {
+  NO_ACTIVE_SUBSCRIPTION: "no_active_subscription",
+  INVALID_PLAN: "invalid_plan",
+  PAYMENT_REQUIRED: "payment_required",
+} as const;
+
+const subscriptionPlugin: BetterAuthPlugin = {
+  id: "subscription",
+  $ERROR_CODES: SUBSCRIPTION_ERROR_CODES,
+  endpoints: {
+    checkSubscription: createAuthEndpoint(
+      "/subscription/check",
+      { method: "GET", use: [sessionMiddleware] },
+      async (ctx) => {
+        const subscription = await getActiveSubscription(
+          ctx.context.session.user.id
+        );
+        
+        if (!subscription) {
+          throw new APIError("FORBIDDEN", {
+            message: SUBSCRIPTION_ERROR_CODES.NO_ACTIVE_SUBSCRIPTION,
+          });
+        }
+        
+        return ctx.json({ subscription });
+      }
+    ),
+  },
+};
+```
+
+## Client Plugin
+
+Create a companion client plugin for type-safe API calls:
+
+```typescript plugins/login-tracker/client.ts
+import type { BetterAuthClientPlugin } from "better-auth/client";
+
+export const loginTrackerClient = () => {
+  return {
+    id: "login-tracker",
+    $InferServerPlugin: {} as ReturnType<typeof loginTracker>,
+    getAtoms: (fetch) => ({
+      async getLoginHistory(limit?: number) {
+        return await fetch("/login-tracker/history", {
+          method: "GET",
+          query: { limit },
+        });
+      },
+    }),
+  } satisfies BetterAuthClientPlugin;
+};
+```
+
+Use the client plugin:
+
+```typescript client.ts
+import { createAuthClient } from "better-auth/client";
+import { loginTrackerClient } from "./plugins/login-tracker/client";
+
+const client = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [loginTrackerClient()],
+});
+
+// Fully typed API calls
+const history = await client.loginTracker.getLoginHistory(10);
+```
+
+## Testing Plugins
+
+Test your plugin with the Better Auth test utilities:
+
+```typescript plugins/login-tracker/index.test.ts
+import { describe, it, expect } from "vitest";
+import { getTestInstance } from "better-auth/test";
+import { loginTracker } from "./index";
+
+describe("loginTracker plugin", () => {
+  it("should lock account after max attempts", async () => {
+    const { auth, signInEmail } = await getTestInstance({
+      plugins: [
+        loginTracker({
+          maxAttempts: 3,
+          lockoutDuration: 60,
+        }),
+      ],
+    });
+    
+    const email = "test@example.com";
+    const wrongPassword = "wrong";
+    
+    // Try to sign in 3 times with wrong password
+    for (let i = 0; i < 3; i++) {
+      await expect(
+        signInEmail({ email, password: wrongPassword })
+      ).rejects.toThrow();
+    }
+    
+    // 4th attempt should be blocked by lockout
+    await expect(
+      signInEmail({ email, password: wrongPassword })
+    ).rejects.toThrow("Account temporarily locked");
+  });
+  
+  it("should track successful login", async () => {
+    const { client, signInEmail } = await getTestInstance({
+      plugins: [loginTracker()],
+    });
+    
+    await signInEmail({
+      email: "test@example.com",
+      password: "password123",
+    });
+    
+    const history = await client.loginTracker.getLoginHistory(1);
+    expect(history.attempts).toHaveLength(1);
+    expect(history.attempts[0].successful).toBe(true);
+  });
+});
+```
+
+## Real-World Example: Audit Log Plugin
+
+Here's a complete audit logging plugin:
+
+```typescript plugins/audit-log/index.ts
+import type { BetterAuthPlugin } from "@better-auth/core";
+import { createAuthEndpoint, createAuthMiddleware } from "@better-auth/core/api";
+import { z } from "zod";
+
+export interface AuditLogOptions {
+  // Events to track
+  events?: Array<"sign_in" | "sign_up" | "sign_out" | "update" | "delete">;
+  // Retention period in days
+  retentionDays?: number;
+  // Custom event handler
+  onEvent?: (event: AuditEvent) => Promise<void>;
+}
+
+interface AuditEvent {
+  userId: string;
+  action: string;
+  timestamp: Date;
+  ipAddress?: string;
+  userAgent?: string;
+  metadata?: Record<string, any>;
+}
+
+export const auditLog = (options?: AuditLogOptions) => {
+  const opts = {
+    events: ["sign_in", "sign_up", "sign_out", "update", "delete"],
+    retentionDays: 90,
+    ...options,
+  };
+  
+  const trackEvent = async (
+    ctx: any,
+    action: string,
+    userId?: string
+  ) => {
+    const event: AuditEvent = {
+      userId: userId || ctx.context.session?.user?.id,
+      action,
+      timestamp: new Date(),
+      ipAddress: ctx.request.headers.get("x-forwarded-for") || undefined,
+      userAgent: ctx.request.headers.get("user-agent") || undefined,
+    };
+    
+    await ctx.context.adapter.create({
+      model: "auditLog",
+      data: event,
+    });
+    
+    await opts.onEvent?.(event);
+  };
+  
+  return {
+    id: "audit-log",
+    schema: {
+      auditLog: {
+        fields: {
+          userId: {
+            type: "string",
+            required: true,
+            index: true,
+          },
+          action: {
+            type: "string",
+            required: true,
+            index: true,
+          },
+          timestamp: {
+            type: "date",
+            required: true,
+            index: true,
+          },
+          ipAddress: {
+            type: "string",
+            required: false,
+          },
+          userAgent: {
+            type: "string",
+            required: false,
+          },
+          metadata: {
+            type: "string",
+            required: false,
+          },
+        },
+      },
+    },
+    hooks: {
+      after: [
+        {
+          matcher: (ctx) => {
+            const path = ctx.path || "";
+            return (
+              path.includes("/sign-in") ||
+              path.includes("/sign-up") ||
+              path.includes("/sign-out")
+            );
+          },
+          handler: createAuthMiddleware(async (ctx) => {
+            const path = ctx.path || "";
+            let action = "unknown";
+            
+            if (path.includes("/sign-in")) action = "sign_in";
+            else if (path.includes("/sign-up")) action = "sign_up";
+            else if (path.includes("/sign-out")) action = "sign_out";
+            
+            if (opts.events.includes(action as any)) {
+              const userId = ctx.context.newSession?.user?.id;
+              if (userId) {
+                await trackEvent(ctx, action, userId);
+              }
+            }
+          }),
+        },
+      ],
+    },
+    endpoints: {
+      getAuditLogs: createAuthEndpoint(
+        "/audit-log/list",
+        {
+          method: "GET",
+          query: z.object({
+            limit: z.number().optional(),
+            offset: z.number().optional(),
+            action: z.string().optional(),
+          }),
+          use: [sessionMiddleware],
+        },
+        async (ctx) => {
+          const { limit = 50, offset = 0, action } = ctx.query;
+          const userId = ctx.context.session.user.id;
+          
+          const where = [{ field: "userId", value: userId }];
+          if (action) {
+            where.push({ field: "action", value: action });
+          }
+          
+          const logs = await ctx.context.adapter.findMany({
+            model: "auditLog",
+            where,
+            limit,
+            offset,
+            sortBy: { field: "timestamp", direction: "desc" },
+          });
+          
+          return ctx.json({ logs });
+        }
+      ),
+    },
+    options: opts,
+  } satisfies BetterAuthPlugin;
+};
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Type Safety" icon="shield">
+    Always provide TypeScript types using `$Infer` and proper generic constraints.
+  </Card>
+  
+  <Card title="Error Handling" icon="triangle-exclamation">
+    Define custom error codes and throw meaningful errors.
+  </Card>
+  
+  <Card title="Rate Limiting" icon="gauge-high">
+    Protect sensitive endpoints with appropriate rate limits.
+  </Card>
+  
+  <Card title="Testing" icon="flask">
+    Write comprehensive tests using Better Auth test utilities.
+  </Card>
+  
+  <Card title="Documentation" icon="book">
+    Document configuration options, endpoints, and usage examples.
+  </Card>
+  
+  <Card title="Migrations" icon="database">
+    Let Better Auth handle schema migrations automatically.
+  </Card>
+</CardGroup>
+
+## Publishing Your Plugin
+
+To share your plugin with the community:
+
+<Steps>
+  <Step title="Package structure">
+    ```bash
+    my-plugin/
+    ├── src/
+    │   ├── index.ts        # Server plugin
+    │   ├── client.ts       # Client plugin
+    │   ├── schema.ts       # Database schema
+    │   └── types.ts        # TypeScript types
+    ├── package.json
+    ├── tsconfig.json
+    └── README.md
+    ```
+  </Step>
+  
+  <Step title="Package configuration">
+    ```json package.json
+    {
+      "name": "better-auth-plugin-name",
+      "version": "1.0.0",
+      "exports": {
+        ".": "./dist/index.js",
+        "./client": "./dist/client.js"
+      },
+      "peerDependencies": {
+        "better-auth": "^1.0.0"
+      }
+    }
+    ```
+  </Step>
+  
+  <Step title="Documentation">
+    Include comprehensive README with:
+    - Installation instructions
+    - Configuration options
+    - Usage examples
+    - API reference
+    - Migration guide
+  </Step>
+  
+  <Step title="Publish to npm">
+    ```bash
+    npm publish
+    ```
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Plugin Overview" icon="puzzle-piece" href="/plugins/overview">
+    Learn about the plugin ecosystem
+  </Card>
+  <Card title="API Reference" icon="book" href="/api-reference/plugins">
+    Complete plugin API documentation
+  </Card>
+  <Card title="Examples" icon="code" href="/examples/plugins">
+    Browse plugin examples
+  </Card>
+  <Card title="Community" icon="users" href="/community">
+    Share your plugin with the community
+  </Card>
+</CardGroup>

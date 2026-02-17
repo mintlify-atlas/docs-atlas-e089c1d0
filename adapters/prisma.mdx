@@ -1,0 +1,292 @@
+---
+title: "Prisma Adapter"
+description: "Use Prisma ORM with Better Auth for type-safe database operations"
+---
+
+## Overview
+
+The Prisma adapter allows you to use [Prisma](https://www.prisma.io/) as your ORM with Better Auth. Prisma is a next-generation ORM that provides type-safe database access and powerful migrations.
+
+## Installation
+
+Install Prisma and the Prisma client:
+
+```bash
+npm install prisma @prisma/client
+npx prisma init
+```
+
+## Configuration
+
+### Basic Setup
+
+Import the adapter and pass your Prisma client:
+
+```typescript
+import { betterAuth } from "better-auth";
+import { prismaAdapter } from "better-auth/adapters/prisma-adapter";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+
+export const auth = betterAuth({
+  database: prismaAdapter(prisma, {
+    provider: "postgresql", // or "mysql", "sqlite", "sqlserver", "cockroachdb", "mongodb"
+  }),
+  // ... other options
+});
+```
+
+### Adapter Options
+
+The Prisma adapter accepts the following configuration options:
+
+<ParamField path="provider" type="string" required>
+  Database provider. One of: `sqlite`, `cockroachdb`, `mysql`, `postgresql`, `sqlserver`, or `mongodb`
+</ParamField>
+
+<ParamField path="debugLogs" type="boolean | object" default="false">
+  Enable debug logs for the adapter. Useful for troubleshooting.
+
+  ```typescript
+  debugLogs: true
+  // or
+  debugLogs: { isRunningAdapterTests: true }
+  ```
+</ParamField>
+
+<ParamField path="usePlural" type="boolean" default="false">
+  Use plural table names (e.g., `users` instead of `user`).
+</ParamField>
+
+<ParamField path="transaction" type="boolean" default="false">
+  Enable database transactions for atomic operations. Set to `false` if your database doesn't support transactions.
+</ParamField>
+
+## Schema Generation
+
+Generate your Prisma schema using the Better Auth CLI:
+
+```bash
+npx @better-auth/cli generate
+```
+
+This will create or update your `schema.prisma` file with the necessary models.
+
+### Example Schema
+
+A basic Prisma schema for Better Auth looks like this:
+
+```prisma
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+```
+
+## Database-Specific Configuration
+
+<Tabs>
+  <Tab title="PostgreSQL">
+    ```typescript
+    import { PrismaClient } from "@prisma/client";
+    import { prismaAdapter } from "better-auth/adapters/prisma-adapter";
+
+    const prisma = new PrismaClient();
+
+    export const auth = betterAuth({
+      database: prismaAdapter(prisma, {
+        provider: "postgresql",
+      }),
+    });
+    ```
+
+    PostgreSQL supports:
+    - UUIDs
+    - Arrays
+    - Transactions
+  </Tab>
+
+  <Tab title="MySQL">
+    ```typescript
+    import { PrismaClient } from "@prisma/client";
+    import { prismaAdapter } from "better-auth/adapters/prisma-adapter";
+
+    const prisma = new PrismaClient();
+
+    export const auth = betterAuth({
+      database: prismaAdapter(prisma, {
+        provider: "mysql",
+      }),
+    });
+    ```
+
+    MySQL limitations:
+    - No UUID support (use `cuid()` or string IDs)
+    - No array support
+  </Tab>
+
+  <Tab title="SQLite">
+    ```typescript
+    import { PrismaClient } from "@prisma/client";
+    import { prismaAdapter } from "better-auth/adapters/prisma-adapter";
+
+    const prisma = new PrismaClient();
+
+    export const auth = betterAuth({
+      database: prismaAdapter(prisma, {
+        provider: "sqlite",
+      }),
+    });
+    ```
+
+    SQLite limitations:
+    - No UUID support
+    - No array support
+    - Limited transaction support
+  </Tab>
+
+  <Tab title="MongoDB">
+    ```typescript
+    import { PrismaClient } from "@prisma/client";
+    import { prismaAdapter } from "better-auth/adapters/prisma-adapter";
+
+    const prisma = new PrismaClient();
+
+    export const auth = betterAuth({
+      database: prismaAdapter(prisma, {
+        provider: "mongodb",
+      }),
+    });
+    ```
+
+    MongoDB supports:
+    - Arrays
+    - Nested objects
+    - ObjectId as primary keys
+  </Tab>
+</Tabs>
+
+## Using Transactions
+
+Enable transactions for atomic multi-step operations:
+
+```typescript
+import { prismaAdapter } from "better-auth/adapters/prisma-adapter";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+
+export const auth = betterAuth({
+  database: prismaAdapter(prisma, {
+    provider: "postgresql",
+    transaction: true, // Enable transactions
+  }),
+});
+```
+
+<Note>
+  Transactions require database support. SQLite and some hosted databases may not support transactions.
+</Note>
+
+## Migrations
+
+After generating your schema, create and apply migrations:
+
+```bash
+# Create a migration
+npx prisma migrate dev --name init
+
+# Apply migrations in production
+npx prisma migrate deploy
+
+# Generate Prisma Client
+npx prisma generate
+```
+
+## Common Issues
+
+### Model not found error
+
+If you see an error like "Model X does not exist in the database":
+
+1. Make sure you've generated the Prisma client: `npx prisma generate`
+2. Restart your development server
+3. Check that your schema includes all required models
+
+### Type errors
+
+If you're seeing TypeScript errors:
+
+1. Run `npx prisma generate` to regenerate types
+2. Restart your TypeScript server
+3. Ensure `@prisma/client` is installed
+
+## Example Projects
+
+See complete examples using Prisma adapter:
+
+- [Next.js + Prisma + PostgreSQL](https://github.com/better-auth/better-auth/tree/main/examples/nextjs-prisma-postgres)
+- [SvelteKit + Prisma + SQLite](https://github.com/better-auth/better-auth/tree/main/examples/sveltekit-prisma-sqlite)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Learn about all configuration options
+  </Card>
+  <Card title="Custom Fields" icon="database" href="/guides/custom-fields">
+    Add custom fields to your database
+  </Card>
+  <Card title="Email Verification" icon="envelope" href="/guides/email-verification">
+    Set up email verification
+  </Card>
+  <Card title="OAuth Setup" icon="key" href="/guides/oauth-setup">
+    Configure social providers
+  </Card>
+</CardGroup>

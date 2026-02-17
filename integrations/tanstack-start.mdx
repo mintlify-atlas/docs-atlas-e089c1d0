@@ -1,0 +1,330 @@
+---
+title: TanStack Start
+description: Learn how to integrate Better Auth with TanStack Start
+---
+
+Better Auth integrates with TanStack Start through standard Request/Response handling and provides dedicated cookie management plugins for both React and Solid.js.
+
+## Installation
+
+<Steps>
+
+<Step>
+### Install Better Auth
+
+First, install Better Auth in your TanStack Start project:
+
+```package-install
+better-auth
+```
+</Step>
+
+<Step>
+### Configure Better Auth
+
+Create your Better Auth instance. See the [installation guide](/docs/installation) for detailed configuration.
+
+```ts title="lib/auth.ts"
+import { betterAuth } from "better-auth";
+
+export const auth = betterAuth({
+  database: {
+    // your database configuration
+  },
+  // other options
+});
+```
+</Step>
+
+<Step>
+### Mount the Handler
+
+Create an API route to handle authentication requests using TanStack Router's file-based routing.
+
+Create a file at `routes/api/auth/$.ts`:
+
+```ts title="routes/api/auth/$.ts"
+import { auth } from "@/lib/auth";
+import { createFileRoute } from "@tanstack/react-router";
+
+export const Route = createFileRoute("/api/auth/$")({
+  server: {
+    handlers: {
+      GET: async ({ request }: { request: Request }) => {
+        return await auth.handler(request);
+      },
+      POST: async ({ request }: { request: Request }) => {
+        return await auth.handler(request);
+      },
+    },
+  },
+});
+```
+
+This will handle all authentication requests at `/api/auth/*`.
+</Step>
+
+<Step>
+### Create Client Instance
+
+Create a client instance based on your framework:
+
+<Tabs items={["react", "solid"]}>
+  <Tab value="react">
+    ```ts title="lib/auth-client.ts"
+    import { createAuthClient } from "better-auth/react";
+
+    export const authClient = createAuthClient({
+      baseURL: import.meta.env.VITE_APP_URL, // optional if same domain
+    });
+
+    export const { signIn, signOut, signUp, useSession } = authClient;
+    ```
+  </Tab>
+  
+  <Tab value="solid">
+    ```ts title="lib/auth-client.ts"
+    import { createAuthClient } from "better-auth/solid";
+
+    export const authClient = createAuthClient({
+      baseURL: import.meta.env.VITE_APP_URL, // optional if same domain
+    });
+
+    export const { signIn, signOut, signUp, useSession } = authClient;
+    ```
+  </Tab>
+</Tabs>
+</Step>
+
+</Steps>
+
+## Usage
+
+### Client Components
+
+<Tabs items={["react", "solid"]}>
+  <Tab value="react">
+    Use the client instance in your React components:
+
+    ```tsx title="components/AuthButton.tsx"
+    import { authClient } from "@/lib/auth-client";
+
+    export function AuthButton() {
+      const session = authClient.useSession();
+
+      if (session.data) {
+        return (
+          <div>
+            <p>Welcome, {session.data.user.name}</p>
+            <button onClick={() => authClient.signOut()}>Sign Out</button>
+          </div>
+        );
+      }
+
+      return (
+        <button onClick={() => authClient.signIn.social({ provider: "github" })}>
+          Sign In with GitHub
+        </button>
+      );
+    }
+    ```
+  </Tab>
+  
+  <Tab value="solid">
+    Use the client instance in your Solid components:
+
+    ```tsx title="components/AuthButton.tsx"
+    import { authClient } from "@/lib/auth-client";
+    import { Show } from "solid-js";
+
+    export function AuthButton() {
+      const session = authClient.useSession();
+
+      return (
+        <Show
+          when={session.data}
+          fallback={
+            <button onClick={() => authClient.signIn.social({ provider: "github" })}>
+              Sign In with GitHub
+            </button>
+          }
+        >
+          {(data) => (
+            <div>
+              <p>Welcome, {data().user.name}</p>
+              <button onClick={() => authClient.signOut()}>Sign Out</button>
+            </div>
+          )}
+        </Show>
+      );
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Server-Side Access
+
+Access session data in server functions:
+
+```tsx title="routes/dashboard.tsx"
+import { auth } from "@/lib/auth";
+import { createFileRoute } from "@tanstack/react-router";
+import { createServerFn } from "@tanstack/react-start";
+
+const getSession = createServerFn("GET", async (_, { request }) => {
+  const session = await auth.api.getSession({
+    headers: request.headers,
+  });
+
+  if (!session) {
+    throw new Error("Unauthorized");
+  }
+
+  return session;
+});
+
+export const Route = createFileRoute("/dashboard")({
+  component: Dashboard,
+  loader: async () => {
+    const session = await getSession();
+    return { session };
+  },
+});
+
+function Dashboard() {
+  const { session } = Route.useLoaderData();
+  return <h1>Welcome, {session.user.name}</h1>;
+}
+```
+
+## Cookie Handling
+
+When calling functions that set cookies (like `signInEmail` or `signUpEmail`) on the server, use the `tanstackStartCookies` plugin. Better Auth provides different plugins for React and Solid.js.
+
+<Tabs items={["react", "solid"]}>
+  <Tab value="react">
+    For TanStack Start with React:
+
+    ```ts title="lib/auth.ts"
+    import { betterAuth } from "better-auth";
+    import { tanstackStartCookies } from "better-auth/tanstack-start";
+
+    export const auth = betterAuth({
+      // your config
+      plugins: [
+        tanstackStartCookies(), // must be last in plugins array
+      ],
+    });
+    ```
+
+    This uses `@tanstack/react-start/server` for cookie handling.
+  </Tab>
+  
+  <Tab value="solid">
+    For TanStack Start with Solid.js:
+
+    ```ts title="lib/auth.ts"
+    import { betterAuth } from "better-auth";
+    import { tanstackStartCookies } from "better-auth/tanstack-start/solid";
+
+    export const auth = betterAuth({
+      // your config
+      plugins: [
+        tanstackStartCookies(), // must be last in plugins array
+      ],
+    });
+    ```
+
+    This uses `@tanstack/solid-start/server` for cookie handling.
+  </Tab>
+</Tabs>
+
+Now cookies will be set automatically when you call auth methods:
+
+```ts
+import { auth } from "@/lib/auth";
+import { createServerFn } from "@tanstack/react-start";
+
+const signIn = createServerFn("POST", async (data: { email: string; password: string }) => {
+  await auth.api.signInEmail({
+    body: data,
+  });
+});
+```
+
+## Route Protection
+
+Protect routes using TanStack Start middleware:
+
+```ts title="lib/middleware/auth.ts"
+import { redirect } from "@tanstack/react-router";
+import { createMiddleware } from "@tanstack/react-start";
+import { getRequestHeaders } from "@tanstack/react-start/server";
+import { auth } from "@/lib/auth";
+
+export const authMiddleware = createMiddleware().server(
+  async ({ next, request }) => {
+    const headers = getRequestHeaders();
+    const session = await auth.api.getSession({ headers });
+
+    if (!session) {
+      throw redirect({ to: "/sign-in" });
+    }
+
+    return await next();
+  }
+);
+```
+
+Apply the middleware to protected routes:
+
+```tsx title="routes/dashboard.tsx"
+import { createFileRoute } from "@tanstack/react-router";
+import { authMiddleware } from "@/lib/middleware/auth";
+
+export const Route = createFileRoute("/dashboard")({
+  component: Dashboard,
+  server: {
+    middleware: [authMiddleware],
+  },
+});
+
+function Dashboard() {
+  return <div>Protected Dashboard</div>;
+}
+```
+
+## API Reference
+
+### `tanstackStartCookies()` (React)
+
+Plugin that automatically sets cookies for TanStack Start with React using `@tanstack/react-start/server`.
+
+**Import:** `better-auth/tanstack-start`
+
+**Source:** [tanstack-start.ts:22-66](/home/daytona/workspace/source/packages/better-auth/src/integrations/tanstack-start.ts:22-66)
+
+### `tanstackStartCookies()` (Solid)
+
+Plugin that automatically sets cookies for TanStack Start with Solid.js using `@tanstack/solid-start/server`.
+
+**Import:** `better-auth/tanstack-start/solid`
+
+**Source:** [tanstack-start-solid.ts:22-66](/home/daytona/workspace/source/packages/better-auth/src/integrations/tanstack-start-solid.ts:22-66)
+
+## Best Practices
+
+<Callout type="info">
+We recommend using the client SDK (`authClient`) for authentication rather than server actions with `auth.api` when possible, as it provides better type safety and automatic state management.
+</Callout>
+
+<Callout type="warn">
+Make sure the appropriate cookies plugin (`tanstackStartCookies`) is the last plugin in your plugins array to ensure proper cookie handling.
+</Callout>
+
+## Related
+
+- [Installation Guide](/docs/installation)
+- [Client Documentation (React)](/docs/client/react)
+- [Client Documentation (Solid)](/docs/client/solid)
+- [Session Management](/docs/concepts/sessions)

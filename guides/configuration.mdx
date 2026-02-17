@@ -1,0 +1,572 @@
+---
+title: Configuration
+description: A comprehensive guide to configuring Better Auth for your application.
+---
+
+This guide covers all the essential configuration options available in Better Auth, helping you customize authentication to fit your application's needs.
+
+## Basic Configuration
+
+Every Better Auth instance requires a minimal configuration with a database connection and a secret:
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth";
+
+export const auth = betterAuth({
+  database: {
+    db: db, // your database instance
+    type: "postgres" // or "mysql", "sqlite"
+  },
+  secret: process.env.BETTER_AUTH_SECRET,
+});
+```
+
+<Note>
+You can generate a secure secret using:
+```bash
+openssl rand -base64 32
+```
+</Note>
+
+## Core Configuration Options
+
+### Base URL and Path
+
+The `baseURL` and `basePath` configure where your auth endpoints are mounted:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
+  basePath: "/api/auth", // default
+  // ...
+});
+```
+
+- **baseURL**: The root URL of your application. Better Auth checks `process.env.BETTER_AUTH_URL` by default.
+- **basePath**: The path where auth routes are mounted (defaults to `/api/auth`).
+
+### Application Name
+
+Customize the application name used in emails and UI:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  appName: "My Awesome App", // default: "Better Auth"
+  // ...
+});
+```
+
+## Database Configuration
+
+### Database Adapter Options
+
+Better Auth supports multiple databases through adapters:
+
+```ts title="Kysely (Built-in)"
+import { betterAuth } from "better-auth";
+
+export const auth = betterAuth({
+  database: {
+    db: db, // Kysely instance
+    type: "postgres", // "mysql" | "sqlite" | "mssql"
+    casing: "camel", // "snake" | "camel" (default: "camel")
+    transaction: true, // enable transactions (default: false)
+  },
+});
+```
+
+```ts title="Drizzle Adapter"
+import { betterAuth } from "better-auth";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
+
+export const auth = betterAuth({
+  database: drizzleAdapter(db, {
+    provider: "pg", // "pg" | "mysql" | "sqlite"
+  }),
+});
+```
+
+```ts title="Prisma Adapter"
+import { betterAuth } from "better-auth";
+import { prismaAdapter } from "better-auth/adapters/prisma";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+
+export const auth = betterAuth({
+  database: prismaAdapter(prisma),
+});
+```
+
+### Advanced Database Options
+
+Configure ID generation and other database behaviors:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  advanced: {
+    database: {
+      // Use auto-increment IDs from database
+      generateId: false,
+      
+      // Or use UUID
+      generateId: "uuid",
+      
+      // Or custom ID generation
+      generateId: ({ model, size }) => {
+        if (model === "user") {
+          return `user_${nanoid()}`;
+        }
+        return nanoid(size);
+      },
+      
+      // Default limit for findMany queries
+      defaultFindManyLimit: 100,
+    },
+  },
+});
+```
+
+## Email and Password Configuration
+
+Configure email/password authentication with customizable password requirements:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  emailAndPassword: {
+    enabled: true,
+    minPasswordLength: 8, // default: 8
+    maxPasswordLength: 128, // default: 128
+    autoSignIn: true, // auto sign-in after sign up (default: true)
+    disableSignUp: false, // disable sign up (default: false)
+    requireEmailVerification: false, // require email verification to sign in
+    
+    // Custom password hashing (optional)
+    password: {
+      hash: async (password) => {
+        // Custom hash implementation
+        return hashedPassword;
+      },
+      verify: async ({ hash, password }) => {
+        // Custom verification
+        return isValid;
+      },
+    },
+    
+    // Password reset configuration
+    sendResetPassword: async ({ user, url, token }, request) => {
+      // Send password reset email
+      await sendEmail({
+        to: user.email,
+        subject: "Reset your password",
+        html: `Click here to reset: ${url}`,
+      });
+    },
+    resetPasswordTokenExpiresIn: 60 * 60, // 1 hour (in seconds)
+    
+    // Callbacks
+    onPasswordReset: async ({ user }, request) => {
+      console.log(`Password reset for ${user.email}`);
+    },
+    revokeSessionsOnPasswordReset: false, // revoke all sessions on password reset
+  },
+});
+```
+
+## Session Configuration
+
+Customize session behavior, expiration, and storage:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  session: {
+    expiresIn: 60 * 60 * 24 * 7, // 7 days (in seconds)
+    updateAge: 60 * 60 * 24, // 1 day - how often to update session
+    disableSessionRefresh: false, // disable automatic session refresh
+    freshAge: 60 * 60 * 24, // 1 day - age for "fresh" sessions (sensitive operations)
+    
+    // Cookie cache for session data
+    cookieCache: {
+      enabled: true,
+      maxAge: 5 * 60, // 5 minutes
+      strategy: "compact", // "compact" | "jwt" | "jwe"
+      
+      // Stateless refresh
+      refreshCache: {
+        updateAge: 60, // refresh 60s before expiry
+      },
+      
+      // Version for cache invalidation
+      version: "1",
+    },
+    
+    // Secondary storage configuration
+    storeSessionInDatabase: false, // store in DB when using secondary storage
+    preserveSessionInDatabase: false, // keep sessions in DB when deleted from cache
+  },
+});
+```
+
+## User Configuration
+
+Configure user model behavior and email changing:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  user: {
+    modelName: "user", // custom table name
+    
+    // Map field names
+    fields: {
+      email: "email_address",
+      name: "full_name",
+    },
+    
+    // Email change configuration
+    changeEmail: {
+      enabled: true,
+      sendChangeEmailConfirmation: async ({ user, newEmail, url, token }, request) => {
+        await sendEmail({
+          to: user.email,
+          subject: "Confirm email change",
+          html: `Confirm change to ${newEmail}: ${url}`,
+        });
+      },
+      updateEmailWithoutVerification: false,
+    },
+    
+    // User deletion configuration
+    deleteUser: {
+      enabled: true,
+      sendDeleteAccountVerification: async ({ user, url, token }, request) => {
+        await sendEmail({
+          to: user.email,
+          subject: "Confirm account deletion",
+          html: `Confirm deletion: ${url}`,
+        });
+      },
+      deleteTokenExpiresIn: 60 * 60 * 24, // 1 day
+      beforeDelete: async (user, request) => {
+        // Clean up user data
+        console.log(`Deleting user ${user.id}`);
+      },
+      afterDelete: async (user, request) => {
+        // Post-deletion tasks
+      },
+    },
+  },
+});
+```
+
+## Account Configuration
+
+Configure OAuth accounts and account linking:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  account: {
+    modelName: "account", // custom table name
+    
+    // Account linking configuration
+    accountLinking: {
+      enabled: true,
+      disableImplicitLinking: false, // require explicit linking
+      trustedProviders: ["google", "github", "email-password"],
+      allowDifferentEmails: false, // allow linking accounts with different emails
+      allowUnlinkingAll: false, // allow unlinking all accounts
+      updateUserInfoOnLink: false, // update user info when linking
+    },
+    
+    updateAccountOnSignIn: true, // update OAuth tokens on sign in
+    encryptOAuthTokens: false, // encrypt OAuth tokens in database
+    
+    // OAuth state management
+    storeStateStrategy: "cookie", // "cookie" | "database"
+    skipStateCookieCheck: false, // skip state validation (not recommended)
+  },
+});
+```
+
+## Social Providers
+
+Configure OAuth providers for social authentication:
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth";
+
+export const auth = betterAuth({
+  socialProviders: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+    },
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID!,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+    },
+    discord: {
+      clientId: process.env.DISCORD_CLIENT_ID!,
+      clientSecret: process.env.DISCORD_CLIENT_SECRET!,
+      prompt: "none", // "none" | "consent"
+    },
+  },
+});
+```
+
+See the [OAuth Setup guide](/docs/guides/oauth-setup) for detailed provider configuration.
+
+## Advanced Configuration
+
+### Cookies
+
+Customize cookie names and attributes:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  advanced: {
+    cookiePrefix: "my-app", // default: "better-auth"
+    
+    // Configure specific cookies
+    cookies: {
+      session_token: {
+        name: "session", // custom cookie name
+        attributes: {
+          secure: true,
+          sameSite: "lax",
+          domain: ".example.com",
+        },
+      },
+    },
+    
+    // Default attributes for all cookies
+    defaultCookieAttributes: {
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+      sameSite: "lax",
+    },
+    
+    // Cross-subdomain cookies
+    crossSubDomainCookies: {
+      enabled: true,
+      domain: ".example.com",
+      additionalCookies: ["custom_cookie"],
+    },
+    
+    useSecureCookies: process.env.NODE_ENV === "production",
+  },
+});
+```
+
+### IP Address Configuration
+
+Configure IP address handling for rate limiting and session tracking:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  advanced: {
+    ipAddress: {
+      // Custom headers to read IP from
+      ipAddressHeaders: [
+        "x-client-ip",
+        "x-forwarded-for",
+        "cf-connecting-ip",
+        "x-real-ip",
+      ],
+      
+      // Disable IP tracking (not recommended)
+      disableIpTracking: false,
+      
+      // IPv6 subnet for rate limiting
+      ipv6Subnet: 64, // 128 | 64 | 48 | 32
+    },
+  },
+});
+```
+
+### Security Options
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  advanced: {
+    // Disable CSRF protection (not recommended)
+    disableCSRFCheck: false,
+    
+    // Disable origin validation (not recommended)
+    disableOriginCheck: false,
+    
+    // Trust proxy headers
+    trustedProxyHeaders: false,
+  },
+});
+```
+
+### Background Tasks
+
+Configure background task handling for platforms like Vercel or Cloudflare:
+
+```ts title="auth.ts (Vercel)"
+import { waitUntil } from "@vercel/functions";
+
+export const auth = betterAuth({
+  advanced: {
+    backgroundTasks: {
+      handler: waitUntil,
+    },
+  },
+});
+```
+
+```ts title="auth.ts (Cloudflare Workers)"
+export const auth = betterAuth({
+  advanced: {
+    backgroundTasks: {
+      handler: (promise) => ctx.waitUntil(promise),
+    },
+  },
+});
+```
+
+## Trusted Origins
+
+Define trusted origins for CORS and redirect validation:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  trustedOrigins: [
+    "http://localhost:3000",
+    "https://example.com",
+    "https://*.example.com", // wildcard subdomains
+  ],
+  
+  // Or dynamic origins
+  trustedOrigins: async (request) => {
+    const customOrigin = request?.headers.get("x-custom-origin");
+    return [
+      "https://example.com",
+      customOrigin,
+    ].filter(Boolean);
+  },
+});
+```
+
+## Secondary Storage
+
+Configure Redis or other key-value stores for session caching:
+
+```ts title="auth.ts"
+import { Redis } from "ioredis";
+
+const redis = new Redis();
+
+export const auth = betterAuth({
+  secondaryStorage: {
+    get: async (key) => {
+      const value = await redis.get(key);
+      return value;
+    },
+    set: async (key, value, ttl) => {
+      if (ttl) {
+        await redis.setex(key, ttl, value);
+      } else {
+        await redis.set(key, value);
+      }
+    },
+    delete: async (key) => {
+      await redis.del(key);
+    },
+  },
+});
+```
+
+## Hooks
+
+Execute custom logic before and after requests:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  hooks: {
+    before: async (ctx) => {
+      console.log(`Incoming request: ${ctx.path}`);
+      return ctx;
+    },
+    after: async (ctx) => {
+      console.log(`Request completed: ${ctx.path}`);
+      return ctx;
+    },
+  },
+});
+```
+
+## Error Handling
+
+Customize error handling and error pages:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  onAPIError: {
+    throw: false, // throw errors instead of returning them
+    errorURL: "/auth/error", // custom error page URL
+    
+    onError: async (error, ctx) => {
+      // Custom error logging
+      console.error(`Auth error on ${ctx.path}:`, error);
+    },
+    
+    // Customize default error page
+    customizeDefaultErrorPage: {
+      colors: {
+        background: "#000000",
+        foreground: "#ffffff",
+        primary: "#0070f3",
+      },
+      disableBackgroundGrid: false,
+      disableCornerDecorations: false,
+    },
+  },
+});
+```
+
+## Logger Configuration
+
+Configure logging output:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  logger: {
+    level: "debug", // "error" | "warn" | "info" | "debug"
+    disabled: false,
+  },
+});
+```
+
+## Environment Variables
+
+Better Auth checks for these environment variables automatically:
+
+- `BETTER_AUTH_SECRET` or `AUTH_SECRET` - Your auth secret
+- `BETTER_AUTH_URL` - Your base URL
+- `NODE_ENV` - Affects security defaults
+- `APP_NAME` - Application name
+
+## TypeScript Configuration
+
+For full type safety, ensure you export your auth instance with proper types:
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth";
+
+export const auth = betterAuth({
+  // ... your configuration
+});
+
+export type Auth = typeof auth;
+```
+
+## Next Steps
+
+<Cards>
+  <Card href="/docs/guides/email-verification" title="Email Verification" description="Set up email verification for your users" />
+  <Card href="/docs/guides/password-reset" title="Password Reset" description="Implement secure password reset flows" />
+  <Card href="/docs/guides/oauth-setup" title="OAuth Setup" description="Configure social sign-in providers" />
+  <Card href="/docs/guides/rate-limiting" title="Rate Limiting" description="Protect your auth endpoints from abuse" />
+</Cards>

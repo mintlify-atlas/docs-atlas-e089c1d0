@@ -1,0 +1,438 @@
+---
+title: Examples
+description: Working examples and demo applications showcasing Better Auth implementations.
+---
+
+Explore real-world examples and demo applications to see Better Auth in action. Each example includes complete source code and demonstrates different features and integration patterns.
+
+## Live Demos
+
+### Full-Featured Next.js Demo
+
+A comprehensive production-ready application showcasing all Better Auth features.
+
+<Card href="https://demo.better-auth.com" title="Live Demo" description="Explore the full-featured demo application" />
+
+<Card href="https://github.com/better-auth/better-auth/tree/main/demo/nextjs" title="Source Code" description="View the complete implementation on GitHub" />
+
+**Features Implemented:**
+- Email & Password Authentication
+- Social Sign-in (GitHub, Google, Discord, Microsoft, Twitch, Twitter, PayPal, Vercel)
+- Passkeys (WebAuthn)
+- Email Verification
+- Password Reset
+- Two-Factor Authentication (TOTP & Backup Codes)
+- Profile Update & Avatar Upload
+- Session Management (Multi-session support)
+- Organization, Members & Roles (RBAC)
+- SSO (SAML & OIDC)
+- SCIM Provisioning
+- OAuth Provider (OpenID Connect)
+- Device Authorization Flow
+- Stripe Integration (Subscriptions)
+- Admin Dashboard
+- Bearer Token Authentication
+- One Tap Sign-in (Google)
+- Last Login Method Tracking
+- Custom Session Fields
+
+## Framework Examples
+
+<CardGroup cols={2}>
+  <Card 
+    href="/examples/next-js" 
+    title="Next.js"
+    description="Full-stack Next.js App Router implementation with all features"
+  />
+  <Card 
+    href="/examples/svelte-kit" 
+    title="SvelteKit"
+    description="SvelteKit application with Better Auth integration"
+  />
+  <Card 
+    href="/examples/nuxt" 
+    title="Nuxt"
+    description="Nuxt 3 application with Better Auth"
+  />
+  <Card 
+    href="/examples/remix" 
+    title="Remix"
+    description="Remix application demonstrating auth patterns"
+  />
+  <Card 
+    href="/examples/astro" 
+    title="Astro"
+    description="Astro application with Better Auth integration"
+  />
+</CardGroup>
+
+## Demo Projects by Use Case
+
+### Stateless Authentication Demo
+
+Minimal example using stateless sessions without a database.
+
+<Card href="https://github.com/better-auth/better-auth/tree/main/demo/stateless" title="Stateless Demo" description="Next.js application with JWT-based stateless authentication" />
+
+**Highlights:**
+- No database required
+- JWT-based sessions
+- Social OAuth providers
+- Minimal configuration
+
+### OIDC Client Demo
+
+Example of using Better Auth as an OIDC client.
+
+<Card href="https://github.com/better-auth/better-auth/tree/main/demo/oidc-client" title="OIDC Client" description="React application demonstrating OIDC client integration" />
+
+**Highlights:**
+- OAuth 2.0 / OpenID Connect client
+- Authorization Code Flow with PKCE
+- Single Sign-On (SSO)
+- Vite + React setup
+
+### Expo Mobile Demo
+
+Native mobile application example for React Native.
+
+<Card href="https://github.com/better-auth/better-auth/tree/main/demo/expo" title="Expo Demo" description="React Native mobile app with Better Auth" />
+
+**Highlights:**
+- Native mobile authentication
+- Expo Router integration
+- Secure token storage
+- Deep linking for OAuth
+
+## Code Snippets by Feature
+
+### Basic Authentication Setup
+
+<CodeGroup>
+```ts title="Server (auth.ts)"
+import { betterAuth } from "better-auth";
+import { Pool } from "pg";
+
+export const auth = betterAuth({
+  database: new Pool({
+    connectionString: process.env.DATABASE_URL,
+  }),
+  emailAndPassword: {
+    enabled: true,
+    async sendResetPassword({ user, url }) {
+      // Send password reset email
+      await sendEmail({
+        to: user.email,
+        subject: "Reset your password",
+        html: `<a href="${url}">Reset Password</a>`,
+      });
+    },
+  },
+  socialProviders: {
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID!,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+    },
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+    },
+  },
+});
+```
+
+```ts title="Client (auth-client.ts)"
+import { createAuthClient } from "better-auth/react";
+
+export const authClient = createAuthClient({
+  baseURL: process.env.NEXT_PUBLIC_APP_URL,
+});
+```
+</CodeGroup>
+
+### Sign In Component
+
+```tsx title="components/sign-in.tsx"
+"use client";
+
+import { authClient } from "@/lib/auth-client";
+import { useState } from "react";
+
+export function SignIn() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const handleEmailSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { data, error } = await authClient.signIn.email({
+      email,
+      password,
+    });
+    
+    if (error) {
+      console.error(error);
+      return;
+    }
+    
+    // Redirect to dashboard
+    window.location.href = "/dashboard";
+  };
+
+  const handleGoogleSignIn = async () => {
+    await authClient.signIn.social({
+      provider: "google",
+    });
+  };
+
+  return (
+    <div>
+      <form onSubmit={handleEmailSignIn}>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="Email"
+        />
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Password"
+        />
+        <button type="submit">Sign In</button>
+      </form>
+      
+      <button onClick={handleGoogleSignIn}>
+        Sign in with Google
+      </button>
+    </div>
+  );
+}
+```
+
+### Protected Route (Server Component)
+
+```tsx title="app/dashboard/page.tsx"
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+
+export default async function DashboardPage() {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+
+  if (!session) {
+    redirect("/sign-in");
+  }
+
+  return (
+    <div>
+      <h1>Welcome, {session.user.name}!</h1>
+      <p>Email: {session.user.email}</p>
+    </div>
+  );
+}
+```
+
+### Organization Management
+
+```tsx title="components/organization-switcher.tsx"
+"use client";
+
+import { authClient } from "@/lib/auth-client";
+
+export function OrganizationSwitcher() {
+  const { data: session } = authClient.useSession();
+  const { data: orgs } = authClient.useListOrganizations();
+
+  const handleSwitch = async (orgId: string) => {
+    await authClient.organization.setActive({
+      organizationId: orgId,
+    });
+  };
+
+  return (
+    <select
+      value={session?.session.activeOrganizationId || ""}
+      onChange={(e) => handleSwitch(e.target.value)}
+    >
+      {orgs?.map((org) => (
+        <option key={org.id} value={org.id}>
+          {org.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+```
+
+### Two-Factor Authentication
+
+```tsx title="components/enable-2fa.tsx"
+"use client";
+
+import { authClient } from "@/lib/auth-client";
+import { useState } from "react";
+import QRCode from "qrcode";
+
+export function Enable2FA() {
+  const [qrCode, setQrCode] = useState<string>("");
+  const [secret, setSecret] = useState<string>("");
+  const [code, setCode] = useState("");
+
+  const handleGenerate = async () => {
+    const { data, error } = await authClient.twoFactor.enable({
+      password: prompt("Enter your password") || "",
+    });
+
+    if (error) {
+      console.error(error);
+      return;
+    }
+
+    setSecret(data.secret);
+    const qr = await QRCode.toDataURL(data.totpURI);
+    setQrCode(qr);
+  };
+
+  const handleVerify = async () => {
+    const { error } = await authClient.twoFactor.verifyTotp({
+      code,
+    });
+
+    if (error) {
+      console.error(error);
+      return;
+    }
+
+    alert("2FA enabled successfully!");
+  };
+
+  return (
+    <div>
+      {!qrCode ? (
+        <button onClick={handleGenerate}>Enable 2FA</button>
+      ) : (
+        <div>
+          <img src={qrCode} alt="QR Code" />
+          <p>Secret: {secret}</p>
+          <input
+            type="text"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="Enter 6-digit code"
+          />
+          <button onClick={handleVerify}>Verify</button>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+## Running Examples Locally
+
+### Prerequisites
+
+- Node.js 18+ or Bun
+- PostgreSQL, MySQL, or SQLite database
+- OAuth provider credentials (for social login)
+
+### Quick Start
+
+<Steps>
+<Step>
+### Clone the Repository
+
+```bash
+git clone https://github.com/better-auth/better-auth.git
+cd better-auth
+```
+</Step>
+
+<Step>
+### Install Dependencies
+
+```bash
+pnpm install
+```
+</Step>
+
+<Step>
+### Navigate to Demo
+
+```bash
+cd demo/nextjs
+```
+</Step>
+
+<Step>
+### Configure Environment
+
+Copy `.env.example` to `.env` and fill in your credentials:
+
+```bash
+cp .env.example .env
+```
+</Step>
+
+<Step>
+### Run Database Migration
+
+```bash
+pnpm exec @better-auth/cli migrate
+```
+</Step>
+
+<Step>
+### Start Development Server
+
+```bash
+pnpm dev
+```
+</Step>
+</Steps>
+
+## Community Examples
+
+Explore projects built by the Better Auth community:
+
+<Callout type="info">
+Have you built something with Better Auth? Share it with the community on [Discord](https://discord.gg/better-auth) or submit a PR to add it here!
+</Callout>
+
+## Testing Examples
+
+The repository includes comprehensive test suites demonstrating various scenarios:
+
+- **Unit Tests**: `packages/better-auth/src/**/*.test.ts`
+- **Integration Tests**: `packages/better-auth/src/auth/full.test.ts`
+- **E2E Tests**: `e2e/smoke/test/fixtures/`
+
+These tests serve as excellent examples of how to implement and test different authentication flows.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card 
+    href="/installation" 
+    title="Get Started"
+    description="Set up Better Auth in your project"
+  />
+  <Card 
+    href="/concepts/architecture" 
+    title="Learn Concepts"
+    description="Understand Better Auth architecture"
+  />
+  <Card 
+    href="/plugins/overview" 
+    title="Explore Plugins"
+    description="Discover available plugins"
+  />
+  <Card 
+    href="https://discord.gg/better-auth" 
+    title="Join Discord"
+    description="Get help from the community"
+  />
+</CardGroup>

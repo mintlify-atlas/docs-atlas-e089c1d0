@@ -1,0 +1,676 @@
+---
+title: "Plugins"
+description: "Extending Better Auth with the plugin system"
+---
+
+## Overview
+
+Better Auth's plugin system is a powerful way to extend authentication functionality without modifying core code. Plugins can add new endpoints, extend database schema, add middleware, implement hooks, and provide client-side methods.
+
+## Plugin Architecture
+
+From `packages/core/src/types/plugin.ts:31`:
+
+```typescript
+interface BetterAuthPlugin {
+  id: string                              // Unique plugin identifier
+  init?: (ctx: AuthContext) => Awaitable<void>  // Initialize plugin
+  endpoints?: Record<string, Endpoint>     // Add API endpoints
+  middlewares?: Middleware[]               // Add route middleware
+  hooks?: {
+    before?: Hook[]                        // Pre-request hooks
+    after?: Hook[]                         // Post-request hooks
+  }
+  schema?: BetterAuthPluginDBSchema       // Extend database schema
+  migrations?: Record<string, Migration>   // Custom migrations
+  rateLimit?: RateLimitRule[]             // Rate limiting rules
+  onRequest?: RequestHandler               // Global request handler
+  onResponse?: ResponseHandler             // Global response handler
+  options?: Record<string, any>            // Plugin configuration
+  $Infer?: Record<string, any>            // Types to infer
+  $ERROR_CODES?: Record<string, string>   // Error codes
+}
+```
+
+## Using Plugins
+
+### Installation
+
+Add plugins to your Better Auth configuration:
+
+```typescript
+import { betterAuth } from "better-auth"
+import { twoFactor } from "better-auth/plugins/two-factor"
+import { organization } from "better-auth/plugins/organization"
+import { apiKey } from "better-auth/plugins/api-key"
+
+const auth = betterAuth({
+  database: /* ... */,
+  plugins: [
+    twoFactor({
+      issuer: "My App",
+      totpOptions: { digits: 6 }
+    }),
+    organization({
+      async sendInvitationEmail({ email, organization, inviter }) {
+        // Send invitation email
+      }
+    }),
+    apiKey()
+  ]
+})
+```
+
+### Client-Side Usage
+
+Plugins extend the client SDK:
+
+```typescript
+import { createAuthClient } from "better-auth/client"
+import { twoFactorClient } from "better-auth/plugins/two-factor/client"
+import { organizationClient } from "better-auth/plugins/organization/client"
+
+const authClient = createAuthClient({
+  plugins: [
+    twoFactorClient(),
+    organizationClient()
+  ]
+})
+
+// Use plugin methods
+await authClient.twoFactor.enable({ password: "..." })
+await authClient.organization.create({ name: "My Org" })
+```
+
+## Built-in Plugins
+
+Better Auth includes many official plugins:
+
+### Authentication Plugins
+
+- **Two-Factor**: TOTP, SMS OTP, backup codes
+- **Magic Link**: Passwordless email authentication
+- **Passkey**: WebAuthn/FIDO2 authentication
+- **Phone Number**: SMS-based authentication
+- **Username**: Alternative to email
+- **Anonymous**: Temporary guest sessions
+- **One-Tap**: Google One Tap sign-in
+
+### Authorization Plugins
+
+- **Organization**: Multi-tenant organizations
+- **Access Control**: Role-based access control (RBAC)
+- **Admin**: Admin dashboard functionality
+
+### Integration Plugins
+
+- **Generic OAuth**: Add custom OAuth providers
+- **OAuth Proxy**: Proxy OAuth requests
+- **OIDC Provider**: Turn your app into an OpenID Connect provider
+- **SSO**: Single sign-on support
+- **SIWE**: Sign In With Ethereum
+- **Stripe**: Integrate with Stripe
+
+### Utility Plugins
+
+- **JWT**: Issue custom JWTs
+- **Bearer**: Bearer token authentication
+- **API Key**: API key authentication
+- **One-Time Token**: Temporary access tokens
+- **Multi-Session**: Multiple concurrent sessions
+- **Custom Session**: Customize session behavior
+- **Device Authorization**: OAuth device flow
+- **Captcha**: Bot protection
+- **Have I Been Pwned**: Check passwords against breaches
+- **SCIM**: System for Cross-domain Identity Management
+- **Open API**: Generate OpenAPI documentation
+
+<Tip>
+See the [Plugins section](/plugins) for detailed documentation on each plugin.
+</Tip>
+
+## Creating Custom Plugins
+
+### Basic Plugin Structure
+
+```typescript
+import type { BetterAuthPlugin } from "better-auth"
+
+export const myPlugin = (options?: {
+  someOption?: string
+}): BetterAuthPlugin => {
+  return {
+    id: "my-plugin",
+    
+    // Optional: Initialize plugin
+    init: async (ctx) => {
+      console.log("Plugin initialized with baseURL:", ctx.baseURL)
+    },
+    
+    // Optional: Configuration
+    options,
+  }
+}
+```
+
+### Adding Endpoints
+
+Plugins can add new API endpoints:
+
+```typescript
+import { createAuthEndpoint } from "better-auth/api"
+import { z } from "zod"
+
+export const myPlugin = (): BetterAuthPlugin => {
+  return {
+    id: "my-plugin",
+    
+    endpoints: {
+      // GET /custom-endpoint
+      customEndpoint: createAuthEndpoint(
+        "/custom-endpoint",
+        {
+          method: "GET",
+          query: z.object({
+            param: z.string()
+          })
+        },
+        async (ctx) => {
+          const { param } = ctx.query
+          
+          // Access auth context
+          const session = ctx.context.session
+          const user = await ctx.context.adapter.findOne({
+            model: "user",
+            where: [{ field: "id", value: session.user.id }]
+          })
+          
+          return ctx.json({ message: "Hello from plugin!", param, user })
+        }
+      ),
+      
+      // POST /protected-endpoint (requires session)
+      protectedEndpoint: createAuthEndpoint(
+        "/protected-endpoint",
+        {
+          method: "POST",
+          use: [sessionMiddleware],  // Require authentication
+          body: z.object({
+            data: z.string()
+          })
+        },
+        async (ctx) => {
+          // ctx.context.session is guaranteed to exist
+          const userId = ctx.context.session.user.id
+          
+          return ctx.json({ success: true, userId })
+        }
+      )
+    }
+  }
+}
+```
+
+### Extending Database Schema
+
+Plugins can add new tables or fields. From `packages/better-auth/src/plugins/two-factor/index.ts:54`:
+
+```typescript
+import { mergeSchema } from "better-auth/db"
+
+const twoFactorSchema = {
+  user: {
+    fields: {
+      twoFactorEnabled: {
+        type: "boolean" as const,
+        defaultValue: false,
+      }
+    }
+  },
+  twoFactor: {
+    modelName: "twoFactor",
+    fields: {
+      id: {
+        type: "string" as const,
+        required: true,
+      },
+      secret: {
+        type: "string" as const,
+        required: true,
+        returned: false,  // Don't include in API responses
+      },
+      backupCodes: {
+        type: "string" as const,
+        required: true,
+        returned: false,
+      },
+      userId: {
+        type: "string" as const,
+        required: true,
+        references: {
+          model: "user",
+          field: "id",
+          onDelete: "cascade",
+        }
+      },
+      createdAt: {
+        type: "date" as const,
+        required: true,
+      },
+      updatedAt: {
+        type: "date" as const,
+        required: true,
+      }
+    }
+  }
+}
+
+export const twoFactor = (options?): BetterAuthPlugin => {
+  return {
+    id: "two-factor",
+    schema: twoFactorSchema,
+    // ...
+  }
+}
+```
+
+**Schema will be automatically migrated when running:**
+
+```bash
+npx @better-auth/cli migrate
+```
+
+### Adding Hooks
+
+Hooks allow intercepting requests at different stages:
+
+```typescript
+import { createAuthMiddleware } from "better-auth/api"
+
+export const auditLogPlugin = (): BetterAuthPlugin => {
+  return {
+    id: "audit-log",
+    
+    hooks: {
+      // Run before request is processed
+      before: [
+        {
+          matcher: (ctx) => {
+            // Match specific endpoints
+            return ctx.path === "/sign-in/email" ||
+                   ctx.path === "/sign-up/email"
+          },
+          handler: createAuthMiddleware(async (ctx) => {
+            console.log("Authentication attempt:", {
+              path: ctx.path,
+              ip: ctx.request?.headers.get("x-forwarded-for"),
+              timestamp: new Date()
+            })
+          })
+        }
+      ],
+      
+      // Run after request is processed
+      after: [
+        {
+          matcher: (ctx) => ctx.path === "/sign-in/email",
+          handler: createAuthMiddleware(async (ctx) => {
+            // Check if sign-in was successful
+            if (ctx.context.newSession) {
+              // Log successful login
+              await logAuditEvent({
+                userId: ctx.context.newSession.user.id,
+                action: "SIGN_IN",
+                success: true,
+                timestamp: new Date()
+              })
+            }
+          })
+        }
+      ]
+    }
+  }
+}
+```
+
+From the two-factor plugin (line 314):
+
+```typescript
+hooks: {
+  after: [
+    {
+      matcher(context) {
+        return (
+          context.path === "/sign-in/email" ||
+          context.path === "/sign-in/username" ||
+          context.path === "/sign-in/phone-number"
+        )
+      },
+      handler: createAuthMiddleware(async (ctx) => {
+        const data = ctx.context.newSession
+        if (!data) return
+        
+        if (!data.user.twoFactorEnabled) return
+        
+        // Check for trusted device cookie
+        const trustDeviceCookie = await ctx.getSignedCookie(
+          TRUST_DEVICE_COOKIE_NAME,
+          ctx.context.secret
+        )
+        
+        if (trustDeviceCookie && isValid(trustDeviceCookie)) {
+          // Device is trusted, allow sign-in
+          return
+        }
+        
+        // Delete session and require 2FA
+        deleteSessionCookie(ctx, true)
+        await ctx.context.internalAdapter.deleteSession(data.session.token)
+        
+        // Set 2FA cookie
+        const twoFactorCookie = ctx.context.createAuthCookie(
+          TWO_FACTOR_COOKIE_NAME,
+          { maxAge: 10 * 60 }  // 10 minutes
+        )
+        await ctx.setSignedCookie(
+          twoFactorCookie.name,
+          identifier,
+          ctx.context.secret,
+          twoFactorCookie.attributes
+        )
+        
+        return ctx.json({ twoFactorRedirect: true })
+      })
+    }
+  ]
+}
+```
+
+### Adding Middleware
+
+Add middleware for specific routes:
+
+```typescript
+import { createAuthMiddleware } from "better-auth/api"
+
+export const rateLimitPlugin = (): BetterAuthPlugin => {
+  return {
+    id: "rate-limit",
+    
+    middlewares: [
+      {
+        path: "/sign-in/**",  // Match all sign-in routes
+        middleware: createAuthMiddleware(async (ctx) => {
+          const ip = ctx.request?.headers.get("x-forwarded-for")
+          const key = `rate-limit:sign-in:${ip}`
+          
+          // Check rate limit
+          const attempts = await ctx.context.secondaryStorage?.get(key)
+          if (attempts && attempts > 5) {
+            throw new APIError("TOO_MANY_REQUESTS", {
+              message: "Too many sign-in attempts. Try again later."
+            })
+          }
+          
+          // Increment counter
+          await ctx.context.secondaryStorage?.set(
+            key,
+            (attempts || 0) + 1,
+            60  // TTL in seconds
+          )
+        })
+      }
+    ]
+  }
+}
+```
+
+### Rate Limiting
+
+Plugins can define custom rate limits:
+
+```typescript
+export const myPlugin = (): BetterAuthPlugin => {
+  return {
+    id: "my-plugin",
+    
+    rateLimit: [
+      {
+        pathMatcher: (path) => path.startsWith("/my-plugin/"),
+        window: 60,    // 60 seconds
+        max: 10,       // 10 requests per window
+      },
+      {
+        pathMatcher: (path) => path === "/my-plugin/sensitive",
+        window: 300,   // 5 minutes
+        max: 3,        // 3 requests
+      }
+    ]
+  }
+}
+```
+
+### Client-Side Plugin
+
+Provide client methods for your plugin:
+
+```typescript
+// server.ts
+export const myPlugin = (): BetterAuthPlugin => {
+  return {
+    id: "my-plugin",
+    endpoints: {
+      customAction: createAuthEndpoint(
+        "/my-plugin/action",
+        { method: "POST", body: z.object({ data: z.string() }) },
+        async (ctx) => {
+          return ctx.json({ result: "success" })
+        }
+      )
+    },
+    
+    // Type inference
+    $Infer: {
+      customAction: {} as {
+        body: { data: string }
+        returned: { result: string }
+      }
+    }
+  }
+}
+
+// client.ts
+import type { InferPluginTypes } from "better-auth/client"
+import type { myPlugin } from "./server"
+
+type MyPluginTypes = InferPluginTypes<ReturnType<typeof myPlugin>>
+
+export const myPluginClient = () => {
+  return {
+    id: "my-plugin",
+    
+    // Typed methods
+    customAction: async (data: MyPluginTypes["customAction"]["body"]) => {
+      const response = await fetch("/api/auth/my-plugin/action", {
+        method: "POST",
+        body: JSON.stringify(data),
+        headers: { "Content-Type": "application/json" }
+      })
+      
+      return await response.json() as MyPluginTypes["customAction"]["returned"]
+    }
+  }
+}
+
+// Usage
+import { createAuthClient } from "better-auth/client"
+import { myPluginClient } from "./my-plugin/client"
+
+const authClient = createAuthClient({
+  plugins: [myPluginClient()]
+})
+
+const result = await authClient.myPlugin.customAction({ data: "hello" })
+```
+
+### Accessing Context
+
+The auth context is available in all plugin handlers:
+
+```typescript
+const handler = async (ctx) => {
+  // Options
+  ctx.context.options
+  
+  // Database access
+  await ctx.context.adapter.findOne({ model: "user", where: [...] })
+  await ctx.context.internalAdapter.findUserByEmail(email)
+  
+  // Current session (if authenticated)
+  ctx.context.session?.user
+  ctx.context.session?.session
+  
+  // Utilities
+  ctx.context.logger.info("Message")
+  ctx.context.generateId({ model: "user" })
+  ctx.context.password.hash(password)
+  
+  // Configuration
+  ctx.context.baseURL
+  ctx.context.secret
+  ctx.context.sessionConfig
+  ctx.context.trustedOrigins
+  
+  // Other plugins
+  const twoFactorPlugin = ctx.context.getPlugin("two-factor")
+}
+```
+
+## Plugin Best Practices
+
+### 1. Type Safety
+
+Always define types for your plugin:
+
+```typescript
+import { z } from "zod"
+
+const optionsSchema = z.object({
+  apiKey: z.string(),
+  timeout: z.number().default(5000)
+})
+
+type MyPluginOptions = z.infer<typeof optionsSchema>
+
+export const myPlugin = (options: MyPluginOptions): BetterAuthPlugin => {
+  const validated = optionsSchema.parse(options)
+  // ...
+}
+```
+
+### 2. Error Handling
+
+Use consistent error codes:
+
+```typescript
+export const MY_PLUGIN_ERROR_CODES = {
+  INVALID_TOKEN: "Invalid token provided",
+  EXPIRED_TOKEN: "Token has expired",
+  RATE_LIMIT_EXCEEDED: "Too many requests"
+} as const
+
+export const myPlugin = (): BetterAuthPlugin => {
+  return {
+    id: "my-plugin",
+    $ERROR_CODES: MY_PLUGIN_ERROR_CODES,
+    
+    endpoints: {
+      validate: createAuthEndpoint(
+        "/my-plugin/validate",
+        { method: "POST" },
+        async (ctx) => {
+          if (!isValid) {
+            throw new APIError("BAD_REQUEST", {
+              message: MY_PLUGIN_ERROR_CODES.INVALID_TOKEN
+            })
+          }
+        }
+      )
+    }
+  }
+}
+```
+
+### 3. Documentation
+
+Document your plugin thoroughly:
+
+```typescript
+/**
+ * My Custom Plugin
+ * 
+ * Provides custom authentication functionality.
+ * 
+ * @example
+ * ```typescript
+ * const auth = betterAuth({
+ *   plugins: [
+ *     myPlugin({
+ *       apiKey: process.env.API_KEY,
+ *       timeout: 5000
+ *     })
+ *   ]
+ * })
+ * ```
+ * 
+ * @param options - Plugin configuration
+ * @param options.apiKey - API key for external service
+ * @param options.timeout - Request timeout in milliseconds
+ */
+export const myPlugin = (options: MyPluginOptions): BetterAuthPlugin => {
+  // ...
+}
+```
+
+### 4. Cleanup
+
+Handle cleanup in the init function:
+
+```typescript
+export const myPlugin = (): BetterAuthPlugin => {
+  let interval: NodeJS.Timeout
+  
+  return {
+    id: "my-plugin",
+    
+    init: async (ctx) => {
+      // Start background task
+      interval = setInterval(async () => {
+        await cleanupExpiredTokens(ctx.adapter)
+      }, 60000)  // Every minute
+      
+      // Cleanup on process exit
+      process.on("beforeExit", () => {
+        clearInterval(interval)
+      })
+    }
+  }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Plugin Examples" icon="code" href="/plugins/custom-plugins">
+    See real-world plugin examples
+  </Card>
+  <Card title="Plugin API Reference" icon="book" href="/api/server/hooks">
+    Complete API reference for plugins
+  </Card>
+  <Card title="Two-Factor Plugin" icon="shield" href="/plugins/two-factor">
+    Study a complete plugin implementation
+  </Card>
+  <Card title="Organization Plugin" icon="building" href="/plugins/organization">
+    Learn about complex plugin architecture
+  </Card>
+</CardGroup>

@@ -1,0 +1,292 @@
+---
+title: Next.js
+description: Learn how to integrate Better Auth with Next.js
+---
+
+Better Auth provides seamless integration with Next.js through dedicated helper functions for both App Router and Pages Router.
+
+## Installation
+
+<Steps>
+
+<Step>
+### Install Better Auth
+
+First, install Better Auth in your Next.js project:
+
+```package-install
+better-auth
+```
+</Step>
+
+<Step>
+### Configure Better Auth
+
+Create your Better Auth instance. See the [installation guide](/docs/installation) for detailed configuration.
+
+```ts title="lib/auth.ts"
+import { betterAuth } from "better-auth";
+
+export const auth = betterAuth({
+  database: {
+    // your database configuration
+  },
+  // other options
+});
+```
+</Step>
+
+<Step>
+### Mount the Handler
+
+Better Auth provides the `toNextJsHandler` helper to convert the auth handler into Next.js route handlers.
+
+<Tabs items={["app-router", "pages-router"]}>
+  <Tab value="app-router">
+    Create a catch-all route handler in the App Router:
+
+    ```ts title="app/api/auth/[...all]/route.ts"
+    import { auth } from "@/lib/auth";
+    import { toNextJsHandler } from "better-auth/next-js";
+
+    export const { GET, POST } = toNextJsHandler(auth);
+    ```
+
+    This will handle all authentication requests at `/api/auth/*`.
+  </Tab>
+  
+  <Tab value="pages-router">
+    For Pages Router, use `toNodeHandler` instead and disable body parsing:
+
+    ```ts title="pages/api/auth/[...all].ts"
+    import { auth } from "@/lib/auth";
+    import { toNodeHandler } from "better-auth/node";
+
+    // Disable Next.js body parsing
+    export const config = { api: { bodyParser: false } };
+
+    export default toNodeHandler(auth.handler);
+    ```
+  </Tab>
+</Tabs>
+</Step>
+
+<Step>
+### Create Client Instance
+
+Create a client instance to interact with Better Auth from your React components:
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/react";
+
+export const authClient = createAuthClient({
+  baseURL: process.env.NEXT_PUBLIC_APP_URL, // optional if same domain
+});
+
+export const { signIn, signOut, signUp, useSession } = authClient;
+```
+</Step>
+
+</Steps>
+
+## Usage
+
+### Client Components
+
+Use the client instance in your React components:
+
+```tsx title="components/auth-button.tsx"
+'use client';
+
+import { authClient } from "@/lib/auth-client";
+
+export function AuthButton() {
+  const session = authClient.useSession();
+
+  if (session.data) {
+    return (
+      <div>
+        <p>Welcome, {session.data.user.name}</p>
+        <button onClick={() => authClient.signOut()}>Sign Out</button>
+      </div>
+    );
+  }
+
+  return <button onClick={() => authClient.signIn.social({ provider: "github" })}>Sign In</button>;
+}
+```
+
+### Server Components
+
+Access session data in Server Components using the `auth.api` object:
+
+```tsx title="app/dashboard/page.tsx"
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+
+export default async function DashboardPage() {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+
+  if (!session) {
+    redirect("/sign-in");
+  }
+
+  return <h1>Welcome, {session.user.name}</h1>;
+}
+```
+
+### Server Actions
+
+Call auth methods in Server Actions:
+
+```tsx title="app/actions.ts"
+'use server';
+
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
+
+export async function getCurrentUser() {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+  
+  return session?.user;
+}
+```
+
+## Cookie Handling
+
+When calling functions that set cookies (like `signInEmail` or `signUpEmail`) in Server Actions, you need to use the `nextCookies` plugin to automatically handle cookie setting:
+
+```ts title="lib/auth.ts"
+import { betterAuth } from "better-auth";
+import { nextCookies } from "better-auth/next-js";
+
+export const auth = betterAuth({
+  // your config
+  plugins: [
+    nextCookies(), // must be last in the plugins array
+  ],
+});
+```
+
+Now cookies will be set automatically:
+
+```ts title="app/actions.ts"
+'use server';
+
+import { auth } from "@/lib/auth";
+
+export async function signIn(email: string, password: string) {
+  await auth.api.signInEmail({
+    body: { email, password },
+  });
+}
+```
+
+## Route Protection
+
+### Next.js 16+ (Proxy)
+
+Next.js 16 introduces the proxy feature. Use it for route protection:
+
+```ts title="proxy.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { getSessionCookie } from "better-auth/cookies";
+
+export async function proxy(request: NextRequest) {
+  const sessionCookie = getSessionCookie(request);
+
+  if (!sessionCookie && request.nextUrl.pathname.startsWith("/dashboard")) {
+    return NextResponse.redirect(new URL("/sign-in", request.url));
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ["/dashboard/:path*"],
+};
+```
+
+<Callout type="warn">
+**Security Warning:** Cookie-based checks only verify cookie existence, not validity. Always validate sessions on the server for protected actions.
+</Callout>
+
+### Next.js 15.2+ (Node.js Runtime)
+
+For full session validation with database checks:
+
+```ts title="middleware.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { headers } from "next/headers";
+import { auth } from "@/lib/auth";
+
+export async function middleware(request: NextRequest) {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+
+  if (!session) {
+    return NextResponse.redirect(new URL("/sign-in", request.url));
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  runtime: "nodejs", // Required for database access
+  matcher: ["/dashboard/:path*"],
+};
+```
+
+### Edge Runtime (Quick Cookie Check)
+
+For older Next.js versions or Edge Runtime:
+
+```ts title="middleware.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { getSessionCookie } from "better-auth/cookies";
+
+export function middleware(request: NextRequest) {
+  const sessionCookie = getSessionCookie(request);
+
+  if (!sessionCookie) {
+    return NextResponse.redirect(new URL("/sign-in", request.url));
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ["/dashboard/:path*"],
+};
+```
+
+## API Reference
+
+### `toNextJsHandler(auth)`
+
+Converts Better Auth handler to Next.js App Router route handlers.
+
+**Parameters:**
+- `auth`: Better Auth instance or handler function
+
+**Returns:** Object with `GET`, `POST`, `PATCH`, `PUT`, `DELETE` handlers
+
+**Source:** [next-js.ts:5-22](/home/daytona/workspace/source/packages/better-auth/src/integrations/next-js.ts:5-22)
+
+### `nextCookies()`
+
+Plugin that automatically sets cookies in Next.js Server Actions using the `next/headers` cookies API.
+
+**Source:** [next-js.ts:24-85](/home/daytona/workspace/source/packages/better-auth/src/integrations/next-js.ts:24-85)
+
+## Related
+
+- [Installation Guide](/docs/installation)
+- [Client Documentation](/docs/client/react)
+- [Session Management](/docs/concepts/sessions)

@@ -1,0 +1,719 @@
+---
+title: Two-Factor Authentication
+description: Add an extra layer of security with 2FA
+---
+
+## Overview
+
+Two-factor authentication (2FA) adds an extra security layer by requiring a second verification step after password authentication. Better Auth supports TOTP (Time-based One-Time Password), Email OTP, and backup codes.
+
+## Features
+
+- TOTP authenticator apps (Google Authenticator, Authy, etc.)
+- Email OTP verification
+- Backup codes for account recovery
+- Trusted device management
+- Skip verification option
+- QR code generation
+- Flexible verification flow
+
+## Installation
+
+The Two-Factor plugin is built into Better Auth:
+
+```bash
+npm install better-auth
+```
+
+## Configuration
+
+### Server Setup
+
+<Steps>
+
+<Step title="Install and configure the plugin">
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth"
+import { twoFactor } from "better-auth/plugins"
+
+export const auth = betterAuth({
+  database: {
+    // your database configuration
+  },
+  plugins: [
+    twoFactor({
+      issuer: "MyApp", // Your app name for authenticator apps
+      totpOptions: {
+        period: 30,    // Token refresh period in seconds
+        digits: 6,     // Number of digits in OTP
+      },
+      backupCodeOptions: {
+        length: 10,         // Length of each backup code
+        amount: 10,         // Number of backup codes
+        storeBackupCodes: "encrypted", // or "hashed"
+      },
+      skipVerificationOnEnable: false, // Skip TOTP verification on enable
+      trustDeviceMaxAge: 60 * 60 * 24 * 30, // 30 days
+    }),
+  ],
+})
+```
+
+</Step>
+
+<Step title="Run database migrations">
+
+Generate and run migrations to add the two-factor table:
+
+```bash
+npx better-auth migrate
+```
+
+</Step>
+
+<Step title="Configure email OTP (optional)">
+
+For email OTP support:
+
+```ts title="auth.ts"
+import { twoFactor } from "better-auth/plugins"
+
+export const auth = betterAuth({
+  plugins: [
+    twoFactor({
+      issuer: "MyApp",
+      otpOptions: {
+        sendOTP: async ({ user, otp }, request) => {
+          // Send OTP via email
+          await sendEmail({
+            to: user.email,
+            subject: "Your verification code",
+            html: `Your verification code is: ${otp}`,
+          })
+        },
+        expiresIn: 300, // 5 minutes
+      },
+    }),
+  ],
+})
+```
+
+</Step>
+
+</Steps>
+
+### Client Setup
+
+<Tabs items={["React", "Vue", "Svelte", "Vanilla"]}>
+
+<Tab value="React">
+
+```tsx title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/react"
+import { twoFactorClient } from "better-auth/client/plugins"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [
+    twoFactorClient({
+      onTwoFactorRedirect: async () => {
+        // Redirect to 2FA verification page
+        window.location.href = "/verify-2fa"
+      },
+    }),
+  ],
+})
+
+export const { twoFactor, useSession } = authClient
+```
+
+</Tab>
+
+<Tab value="Vue">
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/vue"
+import { twoFactorClient } from "better-auth/client/plugins"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [
+    twoFactorClient({
+      onTwoFactorRedirect: async () => {
+        window.location.href = "/verify-2fa"
+      },
+    }),
+  ],
+})
+```
+
+</Tab>
+
+<Tab value="Svelte">
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/svelte"
+import { twoFactorClient } from "better-auth/client/plugins"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [
+    twoFactorClient({
+      onTwoFactorRedirect: async () => {
+        window.location.href = "/verify-2fa"
+      },
+    }),
+  ],
+})
+```
+
+</Tab>
+
+<Tab value="Vanilla">
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/client"
+import { twoFactorClient } from "better-auth/client/plugins"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [
+    twoFactorClient({
+      onTwoFactorRedirect: async () => {
+        window.location.href = "/verify-2fa"
+      },
+    }),
+  ],
+})
+```
+
+</Tab>
+
+</Tabs>
+
+## Usage
+
+### Enable Two-Factor
+
+<Tabs items={["React", "Vue", "Svelte", "Vanilla"]}>
+
+<Tab value="React">
+
+```tsx title="components/EnableTwoFactor.tsx"
+import { twoFactor } from "@/lib/auth-client"
+import { useState } from "react"
+import QRCode from "qrcode"
+
+export function EnableTwoFactor() {
+  const [password, setPassword] = useState("")
+  const [qrCode, setQrCode] = useState<string | null>(null)
+  const [backupCodes, setBackupCodes] = useState<string[]>([])
+
+  const handleEnable = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    const result = await twoFactor.enable({
+      password,
+    })
+    
+    if (result.data) {
+      // Generate QR code from TOTP URI
+      const qr = await QRCode.toDataURL(result.data.totpURI)
+      setQrCode(qr)
+      setBackupCodes(result.data.backupCodes)
+    }
+  }
+
+  if (qrCode) {
+    return (
+      <div>
+        <h2>Scan QR Code</h2>
+        <img src={qrCode} alt="QR Code" />
+        <p>Or enter this code manually: {/* Extract from totpURI */}</p>
+        
+        <h3>Backup Codes</h3>
+        <p>Save these codes in a safe place:</p>
+        <ul>
+          {backupCodes.map((code) => (
+            <li key={code}>{code}</li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+
+  return (
+    <form onSubmit={handleEnable}>
+      <input
+        type="password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        placeholder="Enter your password"
+        required
+      />
+      <button type="submit">Enable 2FA</button>
+    </form>
+  )
+}
+```
+
+</Tab>
+
+<Tab value="Vue">
+
+```vue title="components/EnableTwoFactor.vue"
+<script setup lang="ts">
+import { ref } from 'vue'
+import { authClient } from '@/lib/auth-client'
+import QRCode from 'qrcode'
+
+const password = ref('')
+const qrCode = ref<string | null>(null)
+const backupCodes = ref<string[]>([])
+
+const handleEnable = async () => {
+  const result = await authClient.twoFactor.enable({
+    password: password.value,
+  })
+  
+  if (result.data) {
+    const qr = await QRCode.toDataURL(result.data.totpURI)
+    qrCode.value = qr
+    backupCodes.value = result.data.backupCodes
+  }
+}
+</script>
+
+<template>
+  <div v-if="qrCode">
+    <h2>Scan QR Code</h2>
+    <img :src="qrCode" alt="QR Code" />
+    
+    <h3>Backup Codes</h3>
+    <ul>
+      <li v-for="code in backupCodes" :key="code">{{ code }}</li>
+    </ul>
+  </div>
+  
+  <form v-else @submit.prevent="handleEnable">
+    <input v-model="password" type="password" placeholder="Enter your password" required />
+    <button type="submit">Enable 2FA</button>
+  </form>
+</template>
+```
+
+</Tab>
+
+<Tab value="Svelte">
+
+```svelte title="components/EnableTwoFactor.svelte"
+<script lang="ts">
+  import { authClient } from '$lib/auth-client'
+  import QRCode from 'qrcode'
+
+  let password = ''
+  let qrCode: string | null = null
+  let backupCodes: string[] = []
+
+  async function handleEnable() {
+    const result = await authClient.twoFactor.enable({
+      password,
+    })
+    
+    if (result.data) {
+      qrCode = await QRCode.toDataURL(result.data.totpURI)
+      backupCodes = result.data.backupCodes
+    }
+  }
+</script>
+
+{#if qrCode}
+  <div>
+    <h2>Scan QR Code</h2>
+    <img src={qrCode} alt="QR Code" />
+    
+    <h3>Backup Codes</h3>
+    <ul>
+      {#each backupCodes as code}
+        <li>{code}</li>
+      {/each}
+    </ul>
+  </div>
+{:else}
+  <form on:submit|preventDefault={handleEnable}>
+    <input bind:value={password} type="password" placeholder="Enter your password" required />
+    <button type="submit">Enable 2FA</button>
+  </form>
+{/if}
+```
+
+</Tab>
+
+<Tab value="Vanilla">
+
+```ts title="enable-2fa.ts"
+import { authClient } from './lib/auth-client'
+import QRCode from 'qrcode'
+
+const form = document.querySelector('form')
+const qrContainer = document.querySelector('#qr-container')
+
+form?.addEventListener('submit', async (e) => {
+  e.preventDefault()
+  
+  const formData = new FormData(e.target as HTMLFormElement)
+  const password = formData.get('password') as string
+  
+  const result = await authClient.twoFactor.enable({ password })
+  
+  if (result.data) {
+    const qrCode = await QRCode.toDataURL(result.data.totpURI)
+    
+    if (qrContainer) {
+      qrContainer.innerHTML = `
+        <img src="${qrCode}" alt="QR Code" />
+        <ul>
+          ${result.data.backupCodes.map(code => `<li>${code}</li>`).join('')}
+        </ul>
+      `
+    }
+  }
+})
+```
+
+</Tab>
+
+</Tabs>
+
+### Verify TOTP
+
+```tsx title="components/VerifyTOTP.tsx"
+import { authClient } from "@/lib/auth-client"
+import { useState } from "react"
+
+export function VerifyTOTP() {
+  const [code, setCode] = useState("")
+
+  const handleVerify = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    await authClient.twoFactor.verifyTOTP({
+      code,
+      trustDevice: true, // Remember this device
+    })
+    
+    // Redirect to dashboard
+    window.location.href = "/dashboard"
+  }
+
+  return (
+    <form onSubmit={handleVerify}>
+      <input
+        type="text"
+        value={code}
+        onChange={(e) => setCode(e.target.value)}
+        placeholder="Enter 6-digit code"
+        maxLength={6}
+        required
+      />
+      <button type="submit">Verify</button>
+    </form>
+  )
+}
+```
+
+### Verify Email OTP
+
+<CodeGroup>
+
+```tsx title="Send OTP"
+import { authClient } from "@/lib/auth-client"
+
+await authClient.twoFactor.sendOTP({
+  email: "user@example.com",
+})
+```
+
+```tsx title="Verify OTP"
+import { authClient } from "@/lib/auth-client"
+
+await authClient.twoFactor.verifyOTP({
+  code: "123456",
+  trustDevice: true,
+})
+```
+
+</CodeGroup>
+
+### Use Backup Code
+
+```tsx title="components/VerifyBackupCode.tsx"
+import { authClient } from "@/lib/auth-client"
+import { useState } from "react"
+
+export function VerifyBackupCode() {
+  const [code, setCode] = useState("")
+
+  const handleVerify = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    await authClient.twoFactor.verifyBackupCode({
+      code,
+    })
+    
+    window.location.href = "/dashboard"
+  }
+
+  return (
+    <form onSubmit={handleVerify}>
+      <input
+        type="text"
+        value={code}
+        onChange={(e) => setCode(e.target.value)}
+        placeholder="Enter backup code"
+        required
+      />
+      <button type="submit">Verify</button>
+    </form>
+  )
+}
+```
+
+### Disable Two-Factor
+
+```tsx title="components/DisableTwoFactor.tsx"
+import { authClient } from "@/lib/auth-client"
+import { useState } from "react"
+
+export function DisableTwoFactor() {
+  const [password, setPassword] = useState("")
+
+  const handleDisable = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    await authClient.twoFactor.disable({
+      password,
+    })
+    
+    alert("Two-factor authentication disabled")
+  }
+
+  return (
+    <form onSubmit={handleDisable}>
+      <input
+        type="password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        placeholder="Enter your password"
+        required
+      />
+      <button type="submit">Disable 2FA</button>
+    </form>
+  )
+}
+```
+
+## Configuration Options
+
+```ts
+interface TwoFactorOptions {
+  /**
+   * Issuer name for TOTP apps
+   */
+  issuer?: string
+
+  /**
+   * TOTP configuration
+   */
+  totpOptions?: {
+    period?: number  // Token refresh period (default: 30 seconds)
+    digits?: number  // OTP digits (default: 6)
+  }
+
+  /**
+   * Email OTP configuration
+   */
+  otpOptions?: {
+    sendOTP: (data: {
+      user: User
+      otp: string
+    }, request: Request) => Promise<void>
+    expiresIn?: number  // Expiration in seconds (default: 300)
+  }
+
+  /**
+   * Backup codes configuration
+   */
+  backupCodeOptions?: {
+    length?: number              // Code length (default: 10)
+    amount?: number              // Number of codes (default: 10)
+    storeBackupCodes?: "encrypted" | "hashed"
+  }
+
+  /**
+   * Skip TOTP verification on enable
+   * @default false
+   */
+  skipVerificationOnEnable?: boolean
+
+  /**
+   * Trusted device duration in seconds
+   * @default 2592000 (30 days)
+   */
+  trustDeviceMaxAge?: number
+
+  /**
+   * Two-factor cookie max age in seconds
+   * @default 600 (10 minutes)
+   */
+  twoFactorCookieMaxAge?: number
+
+  /**
+   * Custom schema extensions
+   */
+  schema?: Schema
+}
+```
+
+## API Reference
+
+### Server Endpoints
+
+- `POST /two-factor/enable` - Enable 2FA and generate TOTP (see index.ts:89-199)
+- `POST /two-factor/disable` - Disable 2FA (see index.ts:215-310)
+- `POST /two-factor/verify-totp` - Verify TOTP code
+- `POST /two-factor/verify-otp` - Verify email OTP
+- `POST /two-factor/verify-backup-code` - Verify backup code
+- `POST /two-factor/send-otp` - Send email OTP
+- `POST /two-factor/generate-backup-codes` - Generate new backup codes
+
+### Client Methods
+
+```ts
+// Enable 2FA
+await authClient.twoFactor.enable({
+  password: string
+  issuer?: string
+})
+
+// Disable 2FA
+await authClient.twoFactor.disable({
+  password: string
+})
+
+// Verify TOTP
+await authClient.twoFactor.verifyTOTP({
+  code: string
+  trustDevice?: boolean
+})
+
+// Send email OTP
+await authClient.twoFactor.sendOTP({
+  email: string
+})
+
+// Verify email OTP
+await authClient.twoFactor.verifyOTP({
+  code: string
+  trustDevice?: boolean
+})
+
+// Verify backup code
+await authClient.twoFactor.verifyBackupCode({
+  code: string
+})
+
+// Generate new backup codes
+await authClient.twoFactor.generateBackupCodes({
+  password: string
+})
+```
+
+## Two-Factor Flow
+
+When a user with 2FA enabled signs in:
+
+1. User enters credentials
+2. Credentials are validated
+3. Session is created but not persisted (see index.ts:408)
+4. Temporary 2FA cookie is set (see index.ts:410-427)
+5. User is redirected to 2FA verification page
+6. User enters TOTP/OTP/backup code
+7. Code is verified
+8. Permanent session is created
+9. User is fully authenticated
+
+### Trusted Device
+
+When "trust device" is enabled:
+
+1. Device token is generated (see index.ts:370-384)
+2. Token stored in database and cookie (see index.ts:378-396)
+3. On next sign-in, token is verified (see index.ts:346-402)
+4. 2FA verification is skipped
+5. New token is issued (rotation) (see index.ts:370-396)
+
+## Security Features
+
+### TOTP Secret Encryption
+
+TOTP secrets are encrypted before storage (see index.ts:141-144).
+
+### Backup Code Encryption
+
+Backup codes can be encrypted or hashed (see index.ts:145-148).
+
+### Rate Limiting
+
+Built-in rate limiting prevents brute force attacks (see index.ts:436-444).
+
+### Trusted Device Rotation
+
+Device tokens are rotated on each use (see index.ts:370-396).
+
+## Best Practices
+
+1. **Backup Codes**: Always provide backup codes for account recovery
+2. **Clear Instructions**: Guide users through 2FA setup with screenshots
+3. **Recovery Options**: Offer multiple recovery methods (email, backup codes)
+4. **Testing**: Test 2FA flow thoroughly before deployment
+5. **Device Trust**: Use reasonable trust duration (7-30 days)
+6. **QR Codes**: Provide both QR code and manual entry option
+
+## Troubleshooting
+
+### TOTP codes don't work
+
+- Check device time sync (TOTP requires accurate time)
+- Verify period and digits configuration match
+- Ensure secret wasn't regenerated
+
+### Locked out of account
+
+- Use backup codes
+- Implement admin recovery flow
+- Consider support contact option
+
+### Email OTP not received
+
+- Check spam folder
+- Verify email service configuration
+- Check rate limiting settings
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Password Reset" href="/guides/password-reset">
+    Implement password reset flow
+  </Card>
+  <Card title="Sessions" href="/concepts/sessions">
+    Learn about session management
+  </Card>
+  <Card title="Rate Limiting" href="/guides/rate-limiting">
+    Configure rate limiting
+  </Card>
+  <Card title="Email OTP Plugin" href="/plugins/email-otp">
+    Standalone email OTP authentication
+  </Card>
+</CardGroup>

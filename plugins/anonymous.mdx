@@ -1,0 +1,508 @@
+---
+title: Anonymous
+description: Allow users to start using your app immediately without signing up
+---
+
+The Anonymous plugin enables users to access your application without creating an account upfront. This is perfect for apps that want to reduce friction in user onboarding by allowing users to explore features immediately, then optionally link their anonymous session to a permanent account later.
+
+## Use Cases
+
+- **Gaming**: Let players start playing immediately without registration
+- **E-commerce**: Allow users to add items to cart before creating an account
+- **Content platforms**: Enable users to save preferences or draft content anonymously
+- **Trial experiences**: Provide immediate access to features before requiring signup
+- **Progressive onboarding**: Reduce initial friction while collecting user data over time
+
+## Installation
+
+The Anonymous plugin is included with Better Auth. Simply import and add it to your auth configuration.
+
+<Steps>
+
+<Step title="Add the plugin to your auth configuration">
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth";
+import { anonymous } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  // ... other config
+  plugins: [
+    anonymous({
+      // Optional configuration
+    })
+  ]
+});
+```
+
+</Step>
+
+<Step title="Add the client plugin">
+
+```ts title="client.ts"
+import { createAuthClient } from "better-auth/client";
+import { anonymousClient } from "better-auth/plugins/anonymous/client";
+
+export const client = createAuthClient({
+  plugins: [
+    anonymousClient()
+  ]
+});
+```
+
+</Step>
+
+<Step title="Run migration">
+
+The plugin adds an `isAnonymous` field to the user table.
+
+```bash
+npx better-auth migrate
+```
+
+</Step>
+
+</Steps>
+
+## Configuration Options
+
+The anonymous plugin accepts the following configuration options:
+
+<ParamField path="emailDomainName" type="string" optional>
+  Configure the domain name for temporary email addresses. By default, uses a generated domain based on user ID.
+  
+  ```ts
+  anonymous({
+    emailDomainName: "temp.example.com"
+  })
+  ```
+</ParamField>
+
+<ParamField path="generateRandomEmail" type="() => Promise<string> | string" optional>
+  A custom function to generate random email addresses for anonymous users. You are responsible for ensuring uniqueness.
+  
+  ```ts
+  anonymous({
+    generateRandomEmail: () => {
+      const id = crypto.randomUUID();
+      return `anon-${id}@example.com`;
+    }
+  })
+  ```
+</ParamField>
+
+<ParamField path="generateName" type="(ctx) => Promise<string> | string" optional>
+  A function to generate names for anonymous users. Useful if you want random names or if `name` must be unique in your database.
+  
+  ```ts
+  anonymous({
+    generateName: () => `Guest-${Math.random().toString(36).slice(2, 8)}`
+  })
+  ```
+</ParamField>
+
+<ParamField path="onLinkAccount" type="function" optional>
+  A callback triggered when an anonymous user links their account to a permanent credential. Use this to transfer data from the anonymous user to the new account.
+  
+  ```ts
+  anonymous({
+    onLinkAccount: async ({ anonymousUser, newUser, ctx }) => {
+      // Transfer cart items, preferences, etc.
+      await db.cartItems.updateMany({
+        where: { userId: anonymousUser.user.id },
+        data: { userId: newUser.user.id }
+      });
+    }
+  })
+  ```
+  
+  <ParamField path="anonymousUser" type="object">
+    The anonymous user's session and user data
+    
+    <ParamField path="anonymousUser.user" type="User">
+      The anonymous user object with `isAnonymous: true`
+    </ParamField>
+    
+    <ParamField path="anonymousUser.session" type="Session">
+      The anonymous user's session
+    </ParamField>
+  </ParamField>
+  
+  <ParamField path="newUser" type="object">
+    The newly created/linked user's session and user data
+    
+    <ParamField path="newUser.user" type="User">
+      The new user object
+    </ParamField>
+    
+    <ParamField path="newUser.session" type="Session">
+      The new user's session
+    </ParamField>
+  </ParamField>
+  
+  <ParamField path="ctx" type="GenericEndpointContext">
+    The endpoint context
+  </ParamField>
+</ParamField>
+
+<ParamField path="disableDeleteAnonymousUser" type="boolean" default="false">
+  When `true`, prevents automatic deletion of anonymous users when they link accounts. By default, anonymous users are deleted after linking.
+  
+  ```ts
+  anonymous({
+    disableDeleteAnonymousUser: true
+  })
+  ```
+</ParamField>
+
+<ParamField path="schema" type="object" optional>
+  Custom schema configuration for the user table fields added by this plugin.
+  
+  ```ts
+  anonymous({
+    schema: {
+      user: {
+        fields: {
+          isAnonymous: "is_anon" // Rename the field
+        }
+      }
+    }
+  })
+  ```
+</ParamField>
+
+## Usage Examples
+
+### Client-Side
+
+<CodeGroup>
+
+```tsx title="React"
+import { client } from "./client";
+
+function App() {
+  const signInAnonymously = async () => {
+    const { data, error } = await client.signIn.anonymous();
+    
+    if (data) {
+      console.log("Signed in as:", data.user.name);
+      console.log("Is anonymous:", data.user.isAnonymous);
+    }
+  };
+  
+  const deleteAnonymousAccount = async () => {
+    const { data, error } = await client.deleteAnonymousUser();
+    
+    if (data?.success) {
+      console.log("Anonymous account deleted");
+    }
+  };
+  
+  return (
+    <div>
+      <button onClick={signInAnonymously}>
+        Continue as Guest
+      </button>
+      <button onClick={deleteAnonymousAccount}>
+        Delete Anonymous Account
+      </button>
+    </div>
+  );
+}
+```
+
+```vue title="Vue"
+<script setup>
+import { client } from './client'
+
+const signInAnonymously = async () => {
+  const { data, error } = await client.signIn.anonymous()
+  
+  if (data) {
+    console.log('Signed in as:', data.user.name)
+    console.log('Is anonymous:', data.user.isAnonymous)
+  }
+}
+
+const deleteAnonymousAccount = async () => {
+  const { data, error } = await client.deleteAnonymousUser()
+  
+  if (data?.success) {
+    console.log('Anonymous account deleted')
+  }
+}
+</script>
+
+<template>
+  <div>
+    <button @click="signInAnonymously">
+      Continue as Guest
+    </button>
+    <button @click="deleteAnonymousAccount">
+      Delete Anonymous Account
+    </button>
+  </div>
+</template>
+```
+
+```svelte title="Svelte"
+<script>
+import { client } from './client'
+
+async function signInAnonymously() {
+  const { data, error } = await client.signIn.anonymous()
+  
+  if (data) {
+    console.log('Signed in as:', data.user.name)
+    console.log('Is anonymous:', data.user.isAnonymous)
+  }
+}
+
+async function deleteAnonymousAccount() {
+  const { data, error } = await client.deleteAnonymousUser()
+  
+  if (data?.success) {
+    console.log('Anonymous account deleted')
+  }
+}
+</script>
+
+<button on:click={signInAnonymously}>
+  Continue as Guest
+</button>
+<button on:click={deleteAnonymousAccount}>
+  Delete Anonymous Account
+</button>
+```
+
+</CodeGroup>
+
+### Account Linking Flow
+
+When an anonymous user signs up or signs in, their account is automatically linked and the anonymous user is deleted (unless `disableDeleteAnonymousUser` is set).
+
+```tsx
+// User starts as anonymous
+await client.signIn.anonymous();
+
+// Later, user creates an account - automatic linking occurs
+await client.signUp.email({
+  email: "user@example.com",
+  password: "secure-password",
+  name: "John Doe"
+});
+
+// The onLinkAccount callback is triggered, allowing you to transfer data
+// The anonymous user is automatically deleted
+```
+
+### Server-Side
+
+You can check if a user is anonymous in your API routes:
+
+```ts title="api/protected-route.ts"
+import { auth } from "./auth";
+
+export async function GET(request: Request) {
+  const session = await auth.api.getSession({
+    headers: request.headers
+  });
+  
+  if (!session) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+  
+  if (session.user.isAnonymous) {
+    // Provide limited functionality for anonymous users
+    return Response.json({ 
+      message: "Limited access - sign up for full features" 
+    });
+  }
+  
+  // Full functionality for registered users
+  return Response.json({ message: "Full access granted" });
+}
+```
+
+## API Reference
+
+### Client Methods
+
+#### `signIn.anonymous()`
+
+Sign in anonymously and create a temporary user account.
+
+```ts
+const { data, error } = await client.signIn.anonymous();
+
+if (data) {
+  console.log(data.user);  // User object with isAnonymous: true
+  console.log(data.token); // Session token
+}
+```
+
+**Returns:**
+- `data.user`: User object with `isAnonymous` set to `true`
+- `data.token`: Session token
+- `error`: Error object if sign-in fails
+
+#### `deleteAnonymousUser()`
+
+Delete the current anonymous user account. Only works if the user is anonymous.
+
+```ts
+const { data, error } = await client.deleteAnonymousUser();
+
+if (data?.success) {
+  console.log("Anonymous account deleted");
+}
+```
+
+**Returns:**
+- `data.success`: Boolean indicating deletion success
+- `error`: Error object if deletion fails
+
+<Note>
+This endpoint is disabled when `disableDeleteAnonymousUser` is set to `true`.
+</Note>
+
+### Server Methods
+
+#### `auth.api.signInAnonymous()`
+
+Server-side method to create an anonymous user session.
+
+```ts
+const result = await auth.api.signInAnonymous({
+  headers: request.headers
+});
+```
+
+#### `auth.api.deleteAnonymousUser()`
+
+Server-side method to delete an anonymous user.
+
+```ts
+const result = await auth.api.deleteAnonymousUser({
+  headers: request.headers
+});
+```
+
+## Database Schema
+
+The plugin adds the following field to the `user` table:
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `isAnonymous` | `boolean` | No | `false` | Indicates if the user is anonymous |
+
+## Behavior & Limitations
+
+<Warning>
+**Important behaviors to note:**
+
+1. **No duplicate anonymous sign-ins**: An anonymous user cannot sign in anonymously again while already signed in
+2. **Automatic linking**: When an anonymous user signs up or signs in with a credential, their account is automatically linked
+3. **Automatic cleanup**: By default, the anonymous user record is deleted after successful account linking
+4. **Email uniqueness**: The generated email addresses must be unique. Use `generateRandomEmail` if you need custom logic
+</Warning>
+
+### Account Linking Triggers
+
+Account linking is automatically triggered when an anonymous user:
+- Signs up with email/password
+- Signs in with OAuth (Google, GitHub, etc.)
+- Verifies email via magic link
+- Completes email OTP verification
+- Signs in with One Tap
+- Authenticates with passkey
+- Verifies phone number
+
+## Error Codes
+
+The plugin defines the following error codes:
+
+| Code | Description |
+|------|-------------|
+| `INVALID_EMAIL_FORMAT` | Generated email is not in valid format |
+| `FAILED_TO_CREATE_USER` | Failed to create anonymous user |
+| `COULD_NOT_CREATE_SESSION` | Failed to create session |
+| `ANONYMOUS_USERS_CANNOT_SIGN_IN_AGAIN_ANONYMOUSLY` | Anonymous user tried to sign in anonymously again |
+| `FAILED_TO_DELETE_ANONYMOUS_USER` | Failed to delete anonymous user |
+| `USER_IS_NOT_ANONYMOUS` | Attempted anonymous operation on non-anonymous user |
+| `DELETE_ANONYMOUS_USER_DISABLED` | Deletion is disabled in configuration |
+
+## Source Code Reference
+
+The anonymous plugin implementation:
+
+```ts title="plugins/anonymous/index.ts" showLineNumbers {49-321}
+import type { BetterAuthPlugin } from "@better-auth/core";
+import { createAuthEndpoint } from "@better-auth/core/api";
+import { generateId } from "@better-auth/core/utils";
+import { APIError } from "../../api";
+import { setSessionCookie } from "../../cookies";
+import { mergeSchema } from "../../db/schema";
+import { ANONYMOUS_ERROR_CODES } from "./error-codes";
+import { schema } from "./schema";
+import type { AnonymousOptions } from "./types";
+
+export const anonymous = (options?: AnonymousOptions | undefined) => {
+  return {
+    id: "anonymous",
+    endpoints: {
+      signInAnonymous: createAuthEndpoint(
+        "/sign-in/anonymous",
+        { method: "POST" },
+        async (ctx) => {
+          // Check if already signed in as anonymous
+          const existingSession = await getSessionFromCtx(ctx);
+          if (existingSession?.user.isAnonymous) {
+            throw new APIError("BAD_REQUEST", {
+              message: ANONYMOUS_ERROR_CODES.ANONYMOUS_USERS_CANNOT_SIGN_IN_AGAIN_ANONYMOUSLY
+            });
+          }
+          
+          // Generate email and create user
+          const email = await getAnonUserEmail(options);
+          const name = await options?.generateName?.(ctx) || "Anonymous";
+          const newUser = await ctx.context.internalAdapter.createUser({
+            email,
+            emailVerified: false,
+            isAnonymous: true,
+            name,
+          });
+          
+          // Create session
+          const session = await ctx.context.internalAdapter.createSession(newUser.id);
+          await setSessionCookie(ctx, { session, user: newUser });
+          
+          return ctx.json({ token: session.token, user: newUser });
+        }
+      ),
+    },
+    hooks: {
+      after: [
+        // Hook to handle account linking
+        {
+          matcher: (ctx) => ctx.path?.startsWith("/sign-in"),
+          handler: async (ctx) => {
+            // Transfer data and cleanup anonymous user
+            if (options?.onLinkAccount) {
+              await options.onLinkAccount({ anonymousUser, newUser, ctx });
+            }
+            if (!options?.disableDeleteAnonymousUser) {
+              await ctx.context.internalAdapter.deleteUser(anonymousUser.id);
+            }
+          }
+        }
+      ]
+    },
+    schema: mergeSchema(schema, options?.schema),
+  };
+};
+```
+
+<Note>
+The code above is simplified for documentation. See the full implementation in `packages/better-auth/src/plugins/anonymous/index.ts`.
+</Note>

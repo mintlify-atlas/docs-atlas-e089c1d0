@@ -1,0 +1,336 @@
+---
+title: Client Types
+---
+
+Better Auth provides comprehensive TypeScript types for the client. All types are automatically inferred from your server configuration when using the `inferAdditionalFields` plugin.
+
+## Core Types
+
+### BetterAuthClientOptions
+
+Configuration options for the client.
+
+```ts
+import type { BetterAuthClientOptions } from "better-auth/client";
+
+const options: BetterAuthClientOptions = {
+  baseURL: "http://localhost:3000",
+  basePath: "/api/auth",
+  credentials: "include",
+  plugins: [],
+};
+```
+
+### AuthClient
+
+The type of the client instance returned by `createAuthClient()`.
+
+```ts
+import type { AuthClient } from "better-auth/react";
+import { authClient } from "@/lib/auth-client";
+
+type Client = typeof authClient;
+// or
+type Client = AuthClient<typeof options>;
+```
+
+## Inferred Types
+
+### Session Types
+
+Infer session types from your client:
+
+```ts
+import { authClient } from "@/lib/auth-client";
+
+// Infer the full session type
+type Session = typeof authClient.$Infer.Session;
+
+// Session includes both user and session data
+const session: Session = {
+  user: {
+    id: "123",
+    email: "user@example.com",
+    name: "John Doe",
+    // ... plus any custom fields
+  },
+  session: {
+    id: "session_123",
+    userId: "123",
+    expiresAt: new Date(),
+    // ... plus any custom fields
+  },
+};
+```
+
+### User Type
+
+Infer the user type:
+
+```ts
+type User = typeof authClient.$Infer.Session.user;
+
+const user: User = {
+  id: "123",
+  email: "user@example.com",
+  name: "John Doe",
+  emailVerified: false,
+  image: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+```
+
+## Type Inference from Server
+
+For full type safety, infer types from your server configuration:
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/react";
+import { inferAdditionalFields } from "better-auth/client/plugins";
+import type { auth } from "./auth"; // Server config
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [
+    inferAdditionalFields<typeof auth>(),
+  ],
+});
+
+// Now these types include all custom fields from your server
+type Session = typeof authClient.$Infer.Session;
+type User = typeof Session.user;
+```
+
+## Plugin Types
+
+Plugins extend the available types. For example, with the organization plugin:
+
+```ts
+import { createAuthClient } from "better-auth/react";
+import { organizationClient } from "better-auth/client/plugins";
+
+const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [organizationClient()],
+});
+
+// Organization types are now available
+type ActiveOrganization = Awaited<
+  ReturnType<typeof authClient.organization.getActiveOrganization>
+>["data"];
+```
+
+## Request/Response Types
+
+### BetterFetchResponse
+
+The response type for all client methods:
+
+```ts
+import type { BetterFetchResponse } from "better-auth/client";
+
+type SignInResponse = BetterFetchResponse<{
+  user: User;
+  session: Session;
+}>;
+
+const response: SignInResponse = await authClient.signIn.email({
+  email: "user@example.com",
+  password: "password",
+});
+```
+
+### BetterFetchError
+
+The error type for failed requests:
+
+```ts
+import type { BetterFetchError } from "better-auth/client";
+
+const { data, error } = await authClient.signIn.email({
+  email: "user@example.com",
+  password: "wrong",
+});
+
+if (error) {
+  const err: BetterFetchError = error;
+  console.log(err.status); // HTTP status code
+  console.log(err.message); // Error message
+  console.log(err.code); // Better Auth error code (if available)
+}
+```
+
+## Hook Return Types
+
+### useSession Return Type
+
+The return type of the `useSession` hook:
+
+```ts
+type SessionHook = ReturnType<typeof authClient.useSession>;
+
+// In React
+const session: SessionHook = authClient.useSession();
+
+// In Svelte (store)
+const session: SessionHook = authClient.useSession();
+const value = $session; // Subscribe with $
+
+// In Solid (signal)
+const session: SessionHook = authClient.useSession();
+const value = session(); // Call as function
+```
+
+## Store Types
+
+### ClientStore
+
+The type of the `$store` property for vanilla JavaScript usage:
+
+```ts
+import type { ClientStore } from "better-auth/client";
+
+const store: ClientStore = authClient.$store;
+
+// Access session
+const session = store.session.get();
+
+// Subscribe to changes
+store.session.subscribe((value) => {
+  console.log("Session changed:", value);
+});
+```
+
+## Utility Types
+
+### UnionToIntersection
+
+Convert union types to intersection types:
+
+```ts
+import type { UnionToIntersection } from "better-auth/client";
+
+type A = { a: string };
+type B = { b: number };
+type Union = A | B;
+
+type Intersection = UnionToIntersection<Union>;
+// Result: { a: string } & { b: number }
+```
+
+### PrettifyDeep
+
+Flatten complex types for better IDE display:
+
+```ts
+import type { PrettifyDeep } from "better-auth/client";
+
+type Complex = { a: string } & { b: number } & { c: boolean };
+
+type Pretty = PrettifyDeep<Complex>;
+// Result displayed as: { a: string; b: number; c: boolean }
+```
+
+## Custom Field Types
+
+When adding custom fields to your user or session:
+
+```ts title="lib/auth.ts" 
+import { betterAuth } from "better-auth";
+
+export const auth = betterAuth({
+  user: {
+    additionalFields: {
+      role: {
+        type: "string",
+        required: true,
+      },
+      subscription: {
+        type: "string",
+        required: false,
+      },
+    },
+  },
+});
+```
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/react";
+import { inferAdditionalFields } from "better-auth/client/plugins";
+import type { auth } from "./auth";
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [
+    inferAdditionalFields<typeof auth>(),
+  ],
+});
+
+// Custom fields are now typed
+type User = typeof authClient.$Infer.Session.user;
+// User now has: role: string, subscription: string | null
+```
+
+## Error Codes
+
+Access error codes for type-safe error handling:
+
+```ts
+const errorCodes = authClient.$ERROR_CODES;
+
+if (error.code === errorCodes.USER_NOT_FOUND) {
+  console.log("User does not exist");
+}
+
+if (error.code === errorCodes.INVALID_PASSWORD) {
+  console.log("Wrong password");
+}
+```
+
+## Example: Fully Typed Component
+
+```tsx title="components/profile.tsx"
+import { authClient } from "@/lib/auth-client";
+import type { BetterFetchError } from "better-auth/client";
+
+type Session = typeof authClient.$Infer.Session;
+type User = Session["user"];
+
+export function Profile() {
+  const { data, error, isPending } = authClient.useSession();
+  
+  // data is typed as Session | null
+  // error is typed as BetterFetchError | null
+  
+  if (isPending) {
+    return <div>Loading...</div>;
+  }
+  
+  if (error) {
+    return <div>Error: {error.message}</div>;
+  }
+  
+  if (!data) {
+    return <div>Not signed in</div>;
+  }
+  
+  // TypeScript knows data.user has all the right fields
+  const user: User = data.user;
+  
+  return (
+    <div>
+      <h1>{user.name}</h1>
+      <p>{user.email}</p>
+      {user.emailVerified && <span>✓ Verified</span>}
+    </div>
+  );
+}
+```
+
+## See Also
+
+- [Client Initialization](/api/client/initialization) - Setup and configuration
+- [Client Methods](/api/client/methods) - Available methods
+- [Client Hooks](/api/client/hooks) - React/Vue/Svelte hooks
+- [Custom Fields Guide](/guides/custom-fields) - Adding custom fields

@@ -1,0 +1,675 @@
+---
+title: Testing
+description: Learn how to test your Better Auth implementation with comprehensive testing strategies.
+---
+
+This guide covers testing authentication flows in your Better Auth application, from unit tests to end-to-end testing.
+
+## Overview
+
+Better Auth provides testing utilities to help you:
+
+- Test authentication flows in isolation
+- Mock user sessions
+- Test with in-memory databases
+- Verify email sending
+- Test rate limiting
+
+## Setup
+
+### Install Testing Dependencies
+
+```bash
+npm install --save-dev vitest @testing-library/react @testing-library/jest-dom
+```
+
+For E2E testing:
+
+```bash
+npm install --save-dev playwright @playwright/test
+```
+
+### Test Instance Helper
+
+Better Auth provides a `getTestInstance` helper for creating isolated test environments:
+
+```ts title="tests/setup.ts"
+import { getTestInstance } from "better-auth/test";
+
+export async function createTestAuth() {
+  const { auth, client, testUser, db } = await getTestInstance({
+    // Optional: customize configuration
+    emailAndPassword: {
+      enabled: true,
+    },
+    rateLimit: {
+      enabled: false, // Disable for testing
+    },
+  });
+
+  return { auth, client, testUser, db };
+}
+```
+
+The helper automatically:
+- Creates an in-memory SQLite database
+- Runs migrations
+- Creates a test user
+- Provides a configured client
+
+## Unit Testing
+
+### Testing Sign Up
+
+```ts title="__tests__/auth/signup.test.ts"
+import { describe, it, expect, beforeAll } from "vitest";
+import { getTestInstance } from "better-auth/test";
+
+describe("Sign Up", async () => {
+  const { client } = await getTestInstance();
+
+  it("should create a new user", async () => {
+    const res = await client.signUp.email({
+      email: "newuser@example.com",
+      password: "SecurePass123!",
+      name: "New User",
+    });
+
+    expect(res.data).toBeDefined();
+    expect(res.data?.user.email).toBe("newuser@example.com");
+    expect(res.data?.user.name).toBe("New User");
+    expect(res.data?.session).toBeDefined();
+  });
+
+  it("should reject weak passwords", async () => {
+    const res = await client.signUp.email({
+      email: "user@example.com",
+      password: "weak",
+      name: "User",
+    });
+
+    expect(res.error).toBeDefined();
+    expect(res.error?.message).toContain("PASSWORD_TOO_SHORT");
+  });
+
+  it("should prevent duplicate emails", async () => {
+    const email = "duplicate@example.com";
+    
+    // First sign up
+    await client.signUp.email({
+      email,
+      password: "SecurePass123!",
+      name: "User",
+    });
+
+    // Attempt duplicate
+    const res = await client.signUp.email({
+      email,
+      password: "SecurePass123!",
+      name: "User",
+    });
+
+    expect(res.error).toBeDefined();
+  });
+});
+```
+
+### Testing Sign In
+
+```ts title="__tests__/auth/signin.test.ts"
+import { describe, it, expect } from "vitest";
+import { getTestInstance } from "better-auth/test";
+
+describe("Sign In", async () => {
+  const { client, testUser } = await getTestInstance();
+
+  it("should sign in with valid credentials", async () => {
+    const res = await client.signIn.email({
+      email: testUser.email,
+      password: testUser.password,
+    });
+
+    expect(res.data).toBeDefined();
+    expect(res.data?.user.email).toBe(testUser.email);
+    expect(res.data?.session).toBeDefined();
+  });
+
+  it("should reject invalid password", async () => {
+    const res = await client.signIn.email({
+      email: testUser.email,
+      password: "WrongPassword123!",
+    });
+
+    expect(res.error).toBeDefined();
+    expect(res.error?.message).toContain("INVALID_PASSWORD");
+  });
+
+  it("should reject non-existent user", async () => {
+    const res = await client.signIn.email({
+      email: "nonexistent@example.com",
+      password: "password",
+    });
+
+    expect(res.error).toBeDefined();
+  });
+});
+```
+
+### Testing Sessions
+
+```ts title="__tests__/auth/session.test.ts"
+import { describe, it, expect } from "vitest";
+import { getTestInstance } from "better-auth/test";
+
+describe("Session Management", async () => {
+  const { client, signInWithTestUser } = await getTestInstance();
+
+  it("should get current session", async () => {
+    const { headers } = await signInWithTestUser();
+    
+    const res = await client.getSession({
+      fetchOptions: { headers },
+    });
+
+    expect(res.data).toBeDefined();
+    expect(res.data?.user).toBeDefined();
+    expect(res.data?.session).toBeDefined();
+  });
+
+  it("should return null for unauthenticated requests", async () => {
+    const res = await client.getSession();
+    expect(res.data).toBeNull();
+  });
+
+  it("should sign out", async () => {
+    const { headers } = await signInWithTestUser();
+    
+    const signOutRes = await client.signOut({
+      fetchOptions: { headers },
+    });
+    expect(signOutRes.data).toBeDefined();
+
+    // Session should be invalid
+    const sessionRes = await client.getSession({
+      fetchOptions: { headers },
+    });
+    expect(sessionRes.data).toBeNull();
+  });
+});
+```
+
+## Testing with Custom Configuration
+
+### Test with Specific Options
+
+```ts title="__tests__/auth/email-verification.test.ts"
+import { describe, it, expect, vi } from "vitest";
+import { getTestInstance } from "better-auth/test";
+
+describe("Email Verification", async () => {
+  const sendEmailMock = vi.fn();
+  
+  const { client } = await getTestInstance({
+    emailVerification: {
+      sendVerificationEmail: sendEmailMock,
+      sendOnSignUp: true,
+    },
+  });
+
+  it("should send verification email on sign up", async () => {
+    await client.signUp.email({
+      email: "verify@example.com",
+      password: "SecurePass123!",
+      name: "User",
+    });
+
+    expect(sendEmailMock).toHaveBeenCalledTimes(1);
+    expect(sendEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: expect.objectContaining({
+          email: "verify@example.com",
+        }),
+        url: expect.stringContaining("/verify-email"),
+        token: expect.any(String),
+      }),
+      expect.any(Object), // request object
+    );
+  });
+});
+```
+
+### Test with Different Databases
+
+```ts title="__tests__/auth/postgres.test.ts"
+import { getTestInstance } from "better-auth/test";
+
+describe("PostgreSQL Integration", async () => {
+  const { client } = await getTestInstance(
+    {}, // config
+    {
+      testWith: "postgres", // "postgres" | "mysql" | "mongodb"
+    }
+  );
+
+  // Your tests here
+});
+```
+
+<Note>
+PostgreSQL and MySQL tests require Docker containers running. Use `docker compose up -d` in the Better Auth repository.
+</Note>
+
+## Testing Password Reset
+
+```ts title="__tests__/auth/password-reset.test.ts"
+import { describe, it, expect, vi } from "vitest";
+import { getTestInstance } from "better-auth/test";
+
+describe("Password Reset", async () => {
+  const sendEmailMock = vi.fn();
+  
+  const { client, testUser } = await getTestInstance({
+    emailAndPassword: {
+      sendResetPassword: sendEmailMock,
+    },
+  });
+
+  it("should send reset password email", async () => {
+    const res = await client.forgetPassword({
+      email: testUser.email,
+      redirectTo: "/reset-password",
+    });
+
+    expect(res.data?.status).toBe(true);
+    expect(sendEmailMock).toHaveBeenCalledTimes(1);
+    
+    const call = sendEmailMock.mock.calls[0][0];
+    expect(call.user.email).toBe(testUser.email);
+    expect(call.token).toBeDefined();
+  });
+
+  it("should reset password with valid token", async () => {
+    // Request reset
+    await client.forgetPassword({
+      email: testUser.email,
+      redirectTo: "/reset-password",
+    });
+
+    // Extract token from mock
+    const token = sendEmailMock.mock.calls[0][0].token;
+
+    // Reset password
+    const res = await client.resetPassword({
+      newPassword: "NewSecurePass123!",
+      token,
+    });
+
+    expect(res.data?.status).toBe(true);
+
+    // Verify can sign in with new password
+    const signInRes = await client.signIn.email({
+      email: testUser.email,
+      password: "NewSecurePass123!",
+    });
+
+    expect(signInRes.data).toBeDefined();
+  });
+});
+```
+
+## Testing Rate Limiting
+
+```ts title="__tests__/auth/rate-limit.test.ts"
+import { describe, it, expect } from "vitest";
+import { getTestInstance } from "better-auth/test";
+
+describe("Rate Limiting", async () => {
+  const { client, testUser } = await getTestInstance({
+    rateLimit: {
+      enabled: true,
+      window: 10,
+      max: 3,
+    },
+  });
+
+  it("should enforce rate limits", async () => {
+    // Make requests up to limit
+    for (let i = 0; i < 3; i++) {
+      const res = await client.signIn.email({
+        email: testUser.email,
+        password: "wrong",
+      });
+      expect(res.error?.status).not.toBe(429);
+    }
+
+    // Should be rate limited
+    const res = await client.signIn.email({
+      email: testUser.email,
+      password: "wrong",
+    });
+    expect(res.error?.status).toBe(429);
+  });
+});
+```
+
+## Testing Custom Fields
+
+```ts title="__tests__/auth/custom-fields.test.ts"
+import { describe, it, expect } from "vitest";
+import { getTestInstance } from "better-auth/test";
+import { z } from "zod";
+
+describe("Custom Fields", async () => {
+  const { client } = await getTestInstance({
+    user: {
+      additionalFields: {
+        age: {
+          type: "number",
+          required: false,
+          validator: {
+            input: z.number().min(13).max(120),
+          },
+        },
+        bio: {
+          type: "string",
+          required: false,
+        },
+      },
+    },
+  });
+
+  it("should accept valid custom fields", async () => {
+    const res = await client.signUp.email({
+      email: "user@example.com",
+      password: "SecurePass123!",
+      name: "User",
+      age: 25,
+      bio: "Hello world",
+    });
+
+    expect(res.data?.user.age).toBe(25);
+    expect(res.data?.user.bio).toBe("Hello world");
+  });
+
+  it("should validate custom fields", async () => {
+    const res = await client.signUp.email({
+      email: "user@example.com",
+      password: "SecurePass123!",
+      name: "User",
+      age: 10, // Too young
+    });
+
+    expect(res.error).toBeDefined();
+  });
+});
+```
+
+## Integration Testing
+
+### Testing API Routes
+
+Test your API routes that use Better Auth:
+
+```ts title="__tests__/api/protected-route.test.ts"
+import { describe, it, expect } from "vitest";
+import { getTestInstance } from "better-auth/test";
+
+describe("Protected API Route", async () => {
+  const { auth, signInWithTestUser } = await getTestInstance();
+
+  it("should allow authenticated requests", async () => {
+    const { headers } = await signInWithTestUser();
+
+    const response = await fetch("http://localhost:3000/api/protected", {
+      headers,
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  it("should reject unauthenticated requests", async () => {
+    const response = await fetch("http://localhost:3000/api/protected");
+    expect(response.status).toBe(401);
+  });
+});
+```
+
+### Testing with runWithUser
+
+Execute tests in the context of an authenticated user:
+
+```ts title="__tests__/api/user-context.test.ts"
+import { describe, it, expect } from "vitest";
+import { getTestInstance } from "better-auth/test";
+
+describe("User Context", async () => {
+  const { client, runWithUser, testUser } = await getTestInstance();
+
+  it("should execute with user context", async () => {
+    await runWithUser(testUser.email, testUser.password, async (headers) => {
+      // All requests in this block have the user's session
+      const profile = await client.getSession({
+        fetchOptions: { headers },
+      });
+
+      expect(profile.data?.user.email).toBe(testUser.email);
+    });
+  });
+});
+```
+
+## End-to-End Testing
+
+### Playwright Setup
+
+```ts title="playwright.config.ts"
+import { defineConfig } from "@playwright/test";
+
+export default defineConfig({
+  testDir: "./e2e",
+  use: {
+    baseURL: "http://localhost:3000",
+  },
+  webServer: {
+    command: "npm run dev",
+    port: 3000,
+    reuseExistingServer: !process.env.CI,
+  },
+});
+```
+
+### E2E Sign In Test
+
+```ts title="e2e/signin.spec.ts"
+import { test, expect } from "@playwright/test";
+
+test.describe("Sign In Flow", () => {
+  test("should sign in successfully", async ({ page }) => {
+    await page.goto("/signin");
+
+    // Fill form
+    await page.fill('input[name="email"]', "test@example.com");
+    await page.fill('input[name="password"]', "password123");
+    
+    // Submit
+    await page.click('button[type="submit"]');
+
+    // Should redirect to dashboard
+    await expect(page).toHaveURL("/dashboard");
+    
+    // Should see user email
+    await expect(page.locator("text=test@example.com")).toBeVisible();
+  });
+
+  test("should show error for invalid credentials", async ({ page }) => {
+    await page.goto("/signin");
+
+    await page.fill('input[name="email"]', "test@example.com");
+    await page.fill('input[name="password"]', "wrongpassword");
+    await page.click('button[type="submit"]');
+
+    // Should show error message
+    await expect(
+      page.locator("text=Invalid email or password")
+    ).toBeVisible();
+  });
+});
+```
+
+### E2E OAuth Test
+
+```ts title="e2e/oauth.spec.ts"
+import { test, expect } from "@playwright/test";
+
+test.describe("OAuth Sign In", () => {
+  test("should sign in with Google", async ({ page, context }) => {
+    await page.goto("/signin");
+    
+    // Click Google sign in
+    await page.click('button:has-text("Sign in with Google")');
+    
+    // Should redirect to Google (in test, mock this)
+    // For actual OAuth testing, you'll need to mock the provider
+    // or use a test account
+  });
+});
+```
+
+## Mocking
+
+### Mock Email Service
+
+```ts title="tests/mocks/email.ts"
+import { vi } from "vitest";
+
+export const createEmailMock = () => {
+  const emails: Array<{
+    to: string;
+    subject: string;
+    html: string;
+  }> = [];
+
+  const sendEmail = vi.fn(async ({ to, subject, html }) => {
+    emails.push({ to, subject, html });
+  });
+
+  return {
+    sendEmail,
+    emails,
+    getLastEmail: () => emails[emails.length - 1],
+    clear: () => emails.splice(0, emails.length),
+  };
+};
+```
+
+### Mock OAuth Provider
+
+```ts title="tests/mocks/oauth.ts"
+import { vi } from "vitest";
+
+export const mockOAuthProvider = () => {
+  return {
+    createAuthorizationURL: vi.fn(() => new URL("https://provider.com/oauth")),
+    validateAuthorizationCode: vi.fn(async () => ({
+      accessToken: "mock-token",
+      refreshToken: "mock-refresh",
+    })),
+    getUserInfo: vi.fn(async () => ({
+      user: {
+        id: "oauth-user-123",
+        email: "oauth@example.com",
+        name: "OAuth User",
+      },
+      data: {},
+    })),
+  };
+};
+```
+
+## Best Practices
+
+1. **Isolate tests**: Use `getTestInstance` to create isolated environments
+2. **Clean up**: Tests automatically clean up with `afterAll` hooks
+3. **Mock external services**: Mock email providers, OAuth providers
+4. **Test edge cases**: Test validation, rate limiting, error handling
+5. **Use descriptive names**: Make test intentions clear
+6. **Test user flows**: Test complete authentication flows end-to-end
+7. **CI/CD integration**: Run tests in your CI pipeline
+
+## Running Tests
+
+### Run All Tests
+
+```bash
+npm test
+```
+
+### Run Specific Test File
+
+```bash
+vitest run __tests__/auth/signin.test.ts
+```
+
+### Run Tests in Watch Mode
+
+```bash
+vitest watch
+```
+
+### Run E2E Tests
+
+```bash
+npx playwright test
+```
+
+## CI/CD Integration
+
+### GitHub Actions Example
+
+```yaml title=".github/workflows/test.yml"
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run tests
+        run: npm test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test
+      
+      - name: Run E2E tests
+        run: npx playwright test
+```
+
+## Next Steps
+
+<Cards>
+  <Card href="/docs/guides/configuration" title="Configuration" description="Learn about all configuration options" />
+  <Card href="/docs/guides/rate-limiting" title="Rate Limiting" description="Protect your auth endpoints" />
+  <Card href="/docs/concepts/plugins" title="Plugins" description="Test custom plugins" />
+</Cards>

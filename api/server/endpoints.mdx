@@ -1,0 +1,443 @@
+---
+title: Server Endpoints
+---
+
+Better Auth provides a comprehensive set of server-side API endpoints accessible through the `auth.api` object. These methods can be called directly on the server for programmatic authentication operations.
+
+## Usage
+
+The server API is available on the `auth.api` object returned by `betterAuth()`:
+
+```ts
+import { auth } from "@/lib/auth";
+
+// Get current session
+const session = await auth.api.getSession({
+  headers: request.headers,
+});
+```
+
+## Session Management
+
+### getSession
+
+Get the current session from a request.
+
+```ts
+const session = await auth.api.getSession({
+  headers: request.headers,
+});
+
+if (session) {
+  console.log("User:", session.user);
+  console.log("Session:", session.session);
+}
+```
+
+<ParamField path="headers" type="Headers" required>
+  Request headers containing the session cookie or token.
+</ParamField>
+
+<ResponseField name="session" type="Session | null">
+  Returns the session object with user data, or `null` if not authenticated.
+</ResponseField>
+
+### listSessions
+
+List all active sessions for a user.
+
+```ts
+const sessions = await auth.api.listSessions({
+  headers: request.headers,
+});
+```
+
+<ResponseField name="sessions" type="Session[]">
+  Array of all active sessions for the current user.
+</ResponseField>
+
+### revokeSession
+
+Revoke a specific session.
+
+```ts
+await auth.api.revokeSession({
+  body: {
+    sessionId: "session_id",
+  },
+});
+```
+
+<ParamField path="sessionId" type="string" required>
+  ID of the session to revoke.
+</ParamField>
+
+### revokeSessions
+
+Revoke all sessions for the current user.
+
+```ts
+await auth.api.revokeSessions({
+  headers: request.headers,
+});
+```
+
+### revokeOtherSessions
+
+Revoke all sessions except the current one.
+
+```ts
+await auth.api.revokeOtherSessions({
+  headers: request.headers,
+});
+```
+
+## Authentication
+
+### signUpEmail
+
+Create a new user account with email and password.
+
+```ts
+const result = await auth.api.signUpEmail({
+  body: {
+    email: "user@example.com",
+    password: "securepassword",
+    name: "John Doe",
+  },
+});
+```
+
+<ParamField path="email" type="string" required>
+  User's email address.
+</ParamField>
+
+<ParamField path="password" type="string" required>
+  User's password (min length based on configuration).
+</ParamField>
+
+<ParamField path="name" type="string">
+  User's display name.
+</ParamField>
+
+<ResponseField name="user" type="User">
+  The created user object.
+</ResponseField>
+
+<ResponseField name="session" type="Session">
+  The created session object.
+</ResponseField>
+
+### signInEmail
+
+Sign in with email and password.
+
+```ts
+const result = await auth.api.signInEmail({
+  body: {
+    email: "user@example.com",
+    password: "securepassword",
+  },
+});
+```
+
+<ParamField path="email" type="string" required>
+  User's email address.
+</ParamField>
+
+<ParamField path="password" type="string" required>
+  User's password.
+</ParamField>
+
+<ResponseField name="user" type="User">
+  The authenticated user object.
+</ResponseField>
+
+<ResponseField name="session" type="Session">
+  The created session object.
+</ResponseField>
+
+### signOut
+
+Sign out the current user.
+
+```ts
+await auth.api.signOut({
+  headers: request.headers,
+});
+```
+
+## User Management
+
+### updateUser
+
+Update user information.
+
+```ts
+const updatedUser = await auth.api.updateUser({
+  body: {
+    name: "New Name",
+    image: "https://example.com/avatar.jpg",
+  },
+  headers: request.headers,
+});
+```
+
+<ParamField path="name" type="string">
+  User's display name.
+</ParamField>
+
+<ParamField path="image" type="string">
+  URL to user's avatar image.
+</ParamField>
+
+<ResponseField name="user" type="User">
+  The updated user object.
+</ResponseField>
+
+### deleteUser
+
+Delete the current user's account.
+
+```ts
+await auth.api.deleteUser({
+  headers: request.headers,
+});
+```
+
+## Password Management
+
+### changePassword
+
+Change the user's password.
+
+```ts
+await auth.api.changePassword({
+  body: {
+    currentPassword: "oldpassword",
+    newPassword: "newpassword",
+  },
+  headers: request.headers,
+});
+```
+
+<ParamField path="currentPassword" type="string" required>
+  Current password for verification.
+</ParamField>
+
+<ParamField path="newPassword" type="string" required>
+  New password to set.
+</ParamField>
+
+### setPassword
+
+Set a password for accounts that don't have one (e.g., OAuth accounts).
+
+```ts
+await auth.api.setPassword({
+  body: {
+    password: "newpassword",
+  },
+  headers: request.headers,
+});
+```
+
+<ParamField path="password" type="string" required>
+  Password to set.
+</ParamField>
+
+### requestPasswordReset
+
+Request a password reset link.
+
+```ts
+await auth.api.requestPasswordReset({
+  body: {
+    email: "user@example.com",
+    redirectTo: "/reset-password",
+  },
+});
+```
+
+<ParamField path="email" type="string" required>
+  Email address of the account.
+</ParamField>
+
+<ParamField path="redirectTo" type="string">
+  URL to redirect to after reset.
+</ParamField>
+
+### resetPassword
+
+Reset password using a token.
+
+```ts
+await auth.api.resetPassword({
+  body: {
+    token: "reset_token",
+    password: "newpassword",
+  },
+});
+```
+
+<ParamField path="token" type="string" required>
+  Password reset token.
+</ParamField>
+
+<ParamField path="password" type="string" required>
+  New password to set.
+</ParamField>
+
+## Email Management
+
+### changeEmail
+
+Change the user's email address.
+
+```ts
+await auth.api.changeEmail({
+  body: {
+    newEmail: "newemail@example.com",
+  },
+  headers: request.headers,
+});
+```
+
+<ParamField path="newEmail" type="string" required>
+  New email address.
+</ParamField>
+
+### verifyEmail
+
+Verify email address using a token.
+
+```ts
+await auth.api.verifyEmail({
+  body: {
+    token: "verification_token",
+  },
+});
+```
+
+<ParamField path="token" type="string" required>
+  Email verification token.
+</ParamField>
+
+### sendVerificationEmail
+
+Send a verification email to the user.
+
+```ts
+await auth.api.sendVerificationEmail({
+  body: {
+    email: "user@example.com",
+  },
+});
+```
+
+<ParamField path="email" type="string" required>
+  Email address to send verification to.
+</ParamField>
+
+## Account Management
+
+### listUserAccounts
+
+List all linked accounts for the current user.
+
+```ts
+const accounts = await auth.api.listUserAccounts({
+  headers: request.headers,
+});
+```
+
+<ResponseField name="accounts" type="Account[]">
+  Array of linked account objects.
+</ResponseField>
+
+### linkSocialAccount
+
+Link a social account to the current user.
+
+```ts
+await auth.api.linkSocialAccount({
+  body: {
+    provider: "github",
+  },
+  headers: request.headers,
+});
+```
+
+<ParamField path="provider" type="string" required>
+  Social provider ID (e.g., "github", "google").
+</ParamField>
+
+### unlinkAccount
+
+Unlink an account from the current user.
+
+```ts
+await auth.api.unlinkAccount({
+  body: {
+    accountId: "account_id",
+  },
+  headers: request.headers,
+});
+```
+
+<ParamField path="accountId" type="string" required>
+  ID of the account to unlink.
+</ParamField>
+
+## Example: Protected Route
+
+```ts title="app/api/profile/route.ts"
+import { auth } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
+
+export async function GET(request: NextRequest) {
+  const session = await auth.api.getSession({
+    headers: request.headers,
+  });
+  
+  if (!session) {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 }
+    );
+  }
+  
+  return NextResponse.json({
+    user: session.user,
+  });
+}
+```
+
+## Plugin Endpoints
+
+Plugins can add additional endpoints to `auth.api`. For example:
+
+```ts
+import { twoFactor } from "better-auth/plugins";
+
+const auth = betterAuth({
+  plugins: [twoFactor()],
+});
+
+// Plugin endpoints are automatically available
+await auth.api.enableTwoFactor({
+  headers: request.headers,
+});
+```
+
+See individual plugin documentation for their specific endpoints:
+
+- [Two-Factor Plugin](/plugins/two-factor)
+- [Organization Plugin](/plugins/organization)
+- [Admin Plugin](/plugins/admin)
+
+## See Also
+
+- [betterAuth()](/api/server/better-auth) - Initialize Better Auth
+- [Configuration](/api/server/configuration) - Configuration options
+- [Hooks](/api/server/hooks) - Database hooks

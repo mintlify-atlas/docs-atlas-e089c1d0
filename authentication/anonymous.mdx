@@ -1,0 +1,642 @@
+---
+title: Anonymous Authentication
+description: Allow users to start using your app without creating an account
+---
+
+## Overview
+
+Anonymous authentication allows users to start using your application immediately without creating an account. This is perfect for apps that want to minimize friction while still tracking user data. Users can later link their anonymous account to a permanent account.
+
+## Features
+
+- Instant access without sign-up
+- Automatic account linking
+- Seamless upgrade to permanent account
+- Custom email domain for anonymous users
+- Optional anonymous user deletion
+- Data preservation on account linking
+
+## Installation
+
+The Anonymous plugin is built into Better Auth:
+
+```bash
+npm install better-auth
+```
+
+## Configuration
+
+### Server Setup
+
+<Steps>
+
+<Step title="Install and configure the plugin">
+
+```ts title="auth.ts"
+import { betterAuth } from "better-auth"
+import { anonymous } from "better-auth/plugins"
+
+export const auth = betterAuth({
+  database: {
+    // your database configuration
+  },
+  plugins: [
+    anonymous({
+      emailDomainName: "myapp.com", // Domain for anonymous emails
+      generateName: async (ctx) => {
+        // Custom name generation
+        return `Guest ${Math.floor(Math.random() * 10000)}`
+      },
+      onLinkAccount: async ({ anonymousUser, newUser, ctx }) => {
+        // Transfer data from anonymous to permanent account
+        console.log("Linking anonymous user:", anonymousUser.user.id)
+        console.log("To new user:", newUser.user.id)
+        
+        // Transfer user data, preferences, etc.
+        await transferUserData(anonymousUser.user.id, newUser.user.id)
+      },
+      disableDeleteAnonymousUser: false,
+    }),
+  ],
+})
+```
+
+</Step>
+
+<Step title="Run database migrations">
+
+Generate and run migrations to add the `isAnonymous` field:
+
+```bash
+npx better-auth migrate
+```
+
+</Step>
+
+</Steps>
+
+### Client Setup
+
+<Tabs items={["React", "Vue", "Svelte", "Vanilla"]}>
+
+<Tab value="React">
+
+```tsx title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/react"
+import { anonymousClient } from "better-auth/client/plugins"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [anonymousClient()],
+})
+
+export const { signIn, useSession } = authClient
+```
+
+</Tab>
+
+<Tab value="Vue">
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/vue"
+import { anonymousClient } from "better-auth/client/plugins"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [anonymousClient()],
+})
+```
+
+</Tab>
+
+<Tab value="Svelte">
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/svelte"
+import { anonymousClient } from "better-auth/client/plugins"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [anonymousClient()],
+})
+```
+
+</Tab>
+
+<Tab value="Vanilla">
+
+```ts title="lib/auth-client.ts"
+import { createAuthClient } from "better-auth/client"
+import { anonymousClient } from "better-auth/client/plugins"
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [anonymousClient()],
+})
+```
+
+</Tab>
+
+</Tabs>
+
+## Usage
+
+### Create Anonymous Session
+
+<Tabs items={["React", "Vue", "Svelte", "Vanilla"]}>
+
+<Tab value="React">
+
+```tsx title="components/AnonymousSignIn.tsx"
+import { signIn } from "@/lib/auth-client"
+import { useEffect } from "react"
+
+export function AnonymousSignIn() {
+  useEffect(() => {
+    // Automatically create anonymous session on mount
+    const initAnonymous = async () => {
+      const session = await signIn.anonymous()
+      
+      if (session.data) {
+        console.log("Anonymous session created")
+      }
+    }
+    
+    initAnonymous()
+  }, [])
+
+  return null
+}
+```
+
+</Tab>
+
+<Tab value="Vue">
+
+```vue title="components/AnonymousSignIn.vue"
+<script setup lang="ts">
+import { onMounted } from 'vue'
+import { authClient } from '@/lib/auth-client'
+
+onMounted(async () => {
+  const session = await authClient.signIn.anonymous()
+  
+  if (session.data) {
+    console.log('Anonymous session created')
+  }
+})
+</script>
+```
+
+</Tab>
+
+<Tab value="Svelte">
+
+```svelte title="components/AnonymousSignIn.svelte"
+<script lang="ts">
+  import { onMount } from 'svelte'
+  import { authClient } from '$lib/auth-client'
+
+  onMount(async () => {
+    const session = await authClient.signIn.anonymous()
+    
+    if (session.data) {
+      console.log('Anonymous session created')
+    }
+  })
+</script>
+```
+
+</Tab>
+
+<Tab value="Vanilla">
+
+```ts title="anonymous.ts"
+import { authClient } from './lib/auth-client'
+
+// Create anonymous session on page load
+window.addEventListener('DOMContentLoaded', async () => {
+  const session = await authClient.signIn.anonymous()
+  
+  if (session.data) {
+    console.log('Anonymous session created')
+  }
+})
+```
+
+</Tab>
+
+</Tabs>
+
+### Check if User is Anonymous
+
+<Tabs items={["React", "Vue", "Svelte"]}>
+
+<Tab value="React">
+
+```tsx title="components/UserStatus.tsx"
+import { useSession } from "@/lib/auth-client"
+
+export function UserStatus() {
+  const { data: session } = useSession()
+
+  if (!session) {
+    return <div>Not signed in</div>
+  }
+
+  if (session.user.isAnonymous) {
+    return (
+      <div>
+        <p>You're using the app as a guest</p>
+        <button>Create permanent account</button>
+      </div>
+    )
+  }
+
+  return <div>Welcome, {session.user.name}!</div>
+}
+```
+
+</Tab>
+
+<Tab value="Vue">
+
+```vue title="components/UserStatus.vue"
+<script setup lang="ts">
+import { computed } from 'vue'
+import { authClient } from '@/lib/auth-client'
+
+const session = authClient.useSession()
+const isAnonymous = computed(() => session.value?.user.isAnonymous)
+</script>
+
+<template>
+  <div v-if="!session">
+    Not signed in
+  </div>
+  <div v-else-if="isAnonymous">
+    <p>You're using the app as a guest</p>
+    <button>Create permanent account</button>
+  </div>
+  <div v-else>
+    Welcome, {{ session.user.name }}!
+  </div>
+</template>
+```
+
+</Tab>
+
+<Tab value="Svelte">
+
+```svelte title="components/UserStatus.svelte"
+<script lang="ts">
+  import { authClient } from '$lib/auth-client'
+  
+  const session = authClient.useSession()
+  $: isAnonymous = $session?.user.isAnonymous
+</script>
+
+{#if !$session}
+  <div>Not signed in</div>
+{:else if isAnonymous}
+  <div>
+    <p>You're using the app as a guest</p>
+    <button>Create permanent account</button>
+  </div>
+{:else}
+  <div>Welcome, {$session.user.name}!</div>
+{/if}
+```
+
+</Tab>
+
+</Tabs>
+
+### Link Anonymous Account
+
+When an anonymous user signs up or signs in, their account is automatically linked and the anonymous user is deleted:
+
+```tsx title="components/UpgradeAccount.tsx"
+import { signUp, signIn } from "@/lib/auth-client"
+import { useState } from "react"
+
+export function UpgradeAccount() {
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    // Anonymous account will be automatically linked
+    await signUp.email({
+      email,
+      password,
+      name: "User",
+    })
+    
+    // onLinkAccount callback is triggered
+    // Anonymous user is deleted (unless disabled)
+  }
+
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    // If account exists, link anonymous data
+    await signIn.email({
+      email,
+      password,
+    })
+  }
+
+  return (
+    <div>
+      <h2>Create Permanent Account</h2>
+      <form onSubmit={handleSignUp}>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="Email"
+          required
+        />
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Password"
+          required
+        />
+        <button type="submit">Sign Up</button>
+      </form>
+      
+      <p>Already have an account?</p>
+      <button onClick={handleSignIn}>Sign In</button>
+    </div>
+  )
+}
+```
+
+### Delete Anonymous User
+
+```tsx title="components/DeleteAnonymous.tsx"
+import { authClient } from "@/lib/auth-client"
+
+export function DeleteAnonymous() {
+  const handleDelete = async () => {
+    if (confirm("Delete your guest account? All data will be lost.")) {
+      await authClient.api.deleteAnonymousUser()
+      
+      // User is signed out
+      window.location.href = "/"
+    }
+  }
+
+  return (
+    <button onClick={handleDelete}>
+      Delete Guest Account
+    </button>
+  )
+}
+```
+
+## Configuration Options
+
+```ts
+interface AnonymousOptions {
+  /**
+   * Domain name for anonymous user emails
+   * @example "myapp.com" generates "temp-abc123@myapp.com"
+   */
+  emailDomainName?: string
+
+  /**
+   * Custom email generation function
+   */
+  generateRandomEmail?: () => Promise<string>
+
+  /**
+   * Custom name generation function
+   */
+  generateName?: (ctx: GenericEndpointContext) => Promise<string>
+
+  /**
+   * Called when anonymous account is linked to permanent account
+   */
+  onLinkAccount?: (data: {
+    anonymousUser: {
+      user: UserWithAnonymous
+      session: Session
+    }
+    newUser: {
+      user: User
+      session: Session
+    }
+    ctx: GenericEndpointContext
+  }) => Promise<void>
+
+  /**
+   * Disable automatic deletion of anonymous user on account linking
+   * @default false
+   */
+  disableDeleteAnonymousUser?: boolean
+
+  /**
+   * Custom schema extensions
+   */
+  schema?: Schema
+}
+```
+
+## API Reference
+
+### Server Endpoints
+
+- `POST /sign-in/anonymous` - Create anonymous session (see index.ts:53-133)
+- `POST /delete-anonymous-user` - Delete anonymous user (see index.ts:134-220)
+
+### Client Methods
+
+```ts
+// Create anonymous session
+await authClient.signIn.anonymous()
+
+// Delete anonymous user (requires authentication)
+await authClient.api.deleteAnonymousUser()
+```
+
+## Anonymous Account Flow
+
+### Creating Anonymous User
+
+1. User visits your app
+2. Call `signIn.anonymous()` (see index.ts:83-97)
+3. Generate random email (see index.ts:27-46)
+4. Create user with `isAnonymous: true` (see index.ts:100-107)
+5. Create session (see index.ts:113-122)
+6. User can now use the app
+
+### Linking to Permanent Account
+
+1. Anonymous user signs up or signs in
+2. Hook detects anonymous session (see index.ts:260-268)
+3. `onLinkAccount` callback is triggered (see index.ts:294-298)
+4. Transfer data from anonymous to permanent account
+5. Delete anonymous user (unless disabled) (see index.ts:312)
+6. User continues with permanent account
+
+## Use Cases
+
+### Guest Checkout
+
+Allow users to make purchases without creating an account:
+
+```ts
+// On app load
+await authClient.signIn.anonymous()
+
+// User adds items to cart
+// User proceeds to checkout
+// After payment, prompt to create account
+
+await authClient.signUp.email({
+  email: "user@example.com",
+  password: "password",
+  name: "User",
+})
+
+// Order history is preserved
+```
+
+### Trial Experience
+
+Let users try your app before signing up:
+
+```ts
+// Create anonymous session
+await authClient.signIn.anonymous()
+
+// User explores features
+// When ready, upgrade to full account
+
+await authClient.signIn.social({
+  provider: "google",
+})
+
+// User data and preferences are preserved
+```
+
+### Progressive Profiling
+
+Gradually collect user information:
+
+```ts
+// Start with anonymous session
+await authClient.signIn.anonymous()
+
+// Collect basic info
+await authClient.api.updateUser({
+  name: "John",
+})
+
+// Later, collect email
+await authClient.signUp.email({
+  email: "john@example.com",
+  password: "password",
+})
+
+// All data is preserved
+```
+
+## Data Migration
+
+Use the `onLinkAccount` callback to migrate data:
+
+```ts title="auth.ts"
+import { anonymous } from "better-auth/plugins"
+import { db } from "./db"
+
+export const auth = betterAuth({
+  plugins: [
+    anonymous({
+      onLinkAccount: async ({ anonymousUser, newUser }) => {
+        // Transfer todos
+        await db.todo.updateMany({
+          where: { userId: anonymousUser.user.id },
+          data: { userId: newUser.user.id },
+        })
+
+        // Transfer preferences
+        await db.preferences.updateMany({
+          where: { userId: anonymousUser.user.id },
+          data: { userId: newUser.user.id },
+        })
+
+        // Transfer cart items
+        await db.cartItem.updateMany({
+          where: { userId: anonymousUser.user.id },
+          data: { userId: newUser.user.id },
+        })
+      },
+    }),
+  ],
+})
+```
+
+## Security Considerations
+
+### Prevent Multiple Anonymous Sessions
+
+The plugin prevents anonymous users from creating multiple sessions (see index.ts:84-96).
+
+### Email Validation
+
+Generated emails are validated to ensure proper format (see index.ts:32-37).
+
+### Session Management
+
+Anonymous sessions work like regular sessions with full security.
+
+## Best Practices
+
+1. **Clear Communication**: Tell users they're using a guest account
+2. **Data Migration**: Always implement `onLinkAccount` to preserve data
+3. **Upgrade Prompts**: Show periodic prompts to create permanent account
+4. **Feature Limits**: Consider limiting features for anonymous users
+5. **Expiration**: Consider setting shorter session expiration for anonymous users
+
+## Troubleshooting
+
+### Cannot create anonymous session
+
+- Check if anonymous plugin is configured
+- Verify database migration was run
+- Check for existing anonymous session
+
+### Data not preserved after linking
+
+- Implement `onLinkAccount` callback
+- Verify user IDs in data migration
+- Check foreign key constraints
+
+### Anonymous user not deleted
+
+- Check `disableDeleteAnonymousUser` option
+- Verify deletion permissions
+- Check cascade delete configuration
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Sessions" href="/concepts/sessions">
+    Learn about session management
+  </Card>
+  <Card title="Database" href="/concepts/database">
+    Understand database schema
+  </Card>
+  <Card title="Social Sign-In" href="/authentication/social-providers">
+    Add social authentication
+  </Card>
+  <Card title="Custom Fields" href="/guides/custom-fields">
+    Add custom user fields
+  </Card>
+</CardGroup>

@@ -1,0 +1,444 @@
+---
+title: generate Command
+---
+
+The `generate` command creates database schema files based on your Better Auth configuration. It automatically generates the correct schema for your chosen ORM or query builder.
+
+## Usage
+
+```bash
+npx @better-auth/cli generate
+```
+
+## What It Does
+
+The `generate` command:
+
+1. Reads your Better Auth configuration
+2. Detects your database adapter (Prisma, Drizzle, or Kysely)
+3. Generates the appropriate schema file
+4. Includes schemas for all installed plugins
+5. Adds any custom fields you've defined
+
+## Options
+
+<ParamField path="--cwd" type="string" default="process.cwd()">
+  Working directory for the command.
+  
+  ```bash
+  npx @better-auth/cli generate --cwd ./my-project
+  ```
+</ParamField>
+
+<ParamField path="--config" type="string">
+  Path to your auth configuration file.
+  
+  ```bash
+  npx @better-auth/cli generate --config ./lib/auth.ts
+  ```
+</ParamField>
+
+<ParamField path="--output" type="string">
+  Custom output path for the generated schema.
+  
+  ```bash
+  npx @better-auth/cli generate --output ./prisma/auth.schema.prisma
+  ```
+</ParamField>
+
+<ParamField path="-y, --yes" type="boolean">
+  Automatically answer yes to all prompts.
+  
+  ```bash
+  npx @better-auth/cli generate -y
+  ```
+</ParamField>
+
+## Supported Adapters
+
+### Prisma
+
+Generates a Prisma schema file:
+
+```bash
+npx @better-auth/cli generate
+# Creates: schema.prisma or prisma/schema.prisma
+```
+
+Example output:
+
+```prisma title="schema.prisma"
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  name          String?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  sessions      Session[]
+  accounts      Account[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Account {
+  id            String  @id @default(cuid())
+  userId        String
+  provider      String
+  providerAccountId String
+  accessToken   String?
+  refreshToken  String?
+  expiresAt     DateTime?
+  
+  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([provider, providerAccountId])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  
+  @@unique([identifier, value])
+}
+```
+
+After generating, apply the schema:
+
+```bash
+npx prisma db push
+# or
+npx prisma migrate dev
+```
+
+### Drizzle
+
+Generates a Drizzle schema file:
+
+```bash
+npx @better-auth/cli generate
+# Creates: drizzle/schema.ts or db/schema.ts
+```
+
+Example output:
+
+```ts title="drizzle/schema.ts"
+import { pgTable, text, timestamp, boolean } from "drizzle-orm/pg-core";
+
+export const user = pgTable("user", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  name: text("name"),
+  image: text("image"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const session = pgTable("session", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at").notNull(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+});
+
+export const account = pgTable("account", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  providerAccountId: text("provider_account_id").notNull(),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  expiresAt: timestamp("expires_at"),
+});
+
+export const verification = pgTable("verification", {
+  id: text("id").primaryKey(),
+  identifier: text("identifier").notNull(),
+  value: text("value").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+});
+```
+
+After generating, apply the schema:
+
+```bash
+npx drizzle-kit push
+# or
+npx drizzle-kit migrate
+```
+
+### Kysely
+
+Generates TypeScript types for Kysely:
+
+```bash
+npx @better-auth/cli generate
+# Creates: db/schema.ts or types/db.ts
+```
+
+Example output:
+
+```ts title="db/schema.ts"
+import type { ColumnType, Insertable, Selectable, Updateable } from "kysely";
+
+export interface Database {
+  user: UserTable;
+  session: SessionTable;
+  account: AccountTable;
+  verification: VerificationTable;
+}
+
+export interface UserTable {
+  id: string;
+  email: string;
+  emailVerified: boolean;
+  name: string | null;
+  image: string | null;
+  createdAt: ColumnType<Date, Date | undefined, never>;
+  updatedAt: ColumnType<Date, Date | undefined, Date>;
+}
+
+export type User = Selectable<UserTable>;
+export type NewUser = Insertable<UserTable>;
+export type UserUpdate = Updateable<UserTable>;
+
+// ... similar for Session, Account, Verification
+```
+
+For Kysely, use the `migrate` command to apply changes:
+
+```bash
+npx @better-auth/cli migrate
+```
+
+## Schema Generation Process
+
+When you run `generate`:
+
+1. **Configuration Loading** - Loads your `auth.ts` file
+2. **Adapter Detection** - Identifies which adapter you're using
+3. **Schema Building** - Builds schema from:
+   - Core auth tables (user, session, account, verification)
+   - Plugin tables (if any plugins are installed)
+   - Custom fields (if defined in config)
+4. **File Writing** - Writes the schema to the appropriate location
+
+## Plugin Schemas
+
+Plugins automatically add their required tables:
+
+### Two-Factor Plugin
+
+Adds `twoFactor` table:
+
+```prisma
+model TwoFactor {
+  id        String   @id @default(cuid())
+  userId    String
+  secret    String
+  backupCodes String[]
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId])
+}
+```
+
+### Organization Plugin
+
+Adds `organization`, `member`, and `invitation` tables:
+
+```prisma
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  
+  members   Member[]
+}
+
+model Member {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  role           String
+  
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@unique([organizationId, userId])
+}
+```
+
+## Custom Fields
+
+Custom fields are automatically included:
+
+```ts title="auth.ts"
+export const auth = betterAuth({
+  user: {
+    additionalFields: {
+      role: {
+        type: "string",
+        required: true,
+        defaultValue: "user",
+      },
+      subscription: {
+        type: "string",
+        required: false,
+      },
+    },
+  },
+});
+```
+
+Generated schema includes these fields:
+
+```prisma
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  role         String   @default("user")
+  subscription String?
+  // ... other fields
+}
+```
+
+## Overwriting Files
+
+If a schema file already exists:
+
+```
+The file schema.prisma already exists. Do you want to overwrite the schema to the file?
+> Yes
+> No
+```
+
+Use `-y` to skip the prompt:
+
+```bash
+npx @better-auth/cli generate -y
+```
+
+## Output Messages
+
+### No Changes
+
+```
+Your schema is already up to date.
+```
+
+### Schema Generated
+
+```
+🚀 Schema was generated successfully!
+```
+
+### Schema Overwritten
+
+```
+🚀 Schema was overwritten successfully!
+```
+
+## Examples
+
+### Generate for Prisma
+
+```bash
+# Generate schema
+npx @better-auth/cli generate
+
+# Apply to database
+npx prisma db push
+```
+
+### Generate for Drizzle
+
+```bash
+# Generate schema
+npx @better-auth/cli generate
+
+# Apply to database
+npx drizzle-kit push
+```
+
+### Generate for Kysely
+
+```bash
+# Generate schema
+npx @better-auth/cli generate
+
+# Run migrations
+npx @better-auth/cli migrate
+```
+
+### Custom Output Path
+
+```bash
+npx @better-auth/cli generate --output ./custom/schema.prisma
+```
+
+### Auto-confirm
+
+```bash
+npx @better-auth/cli generate -y
+```
+
+## Troubleshooting
+
+### Config File Not Found
+
+```bash
+# Specify config path
+npx @better-auth/cli generate --config ./lib/auth.ts
+```
+
+### Adapter Not Detected
+
+Ensure you're using a supported adapter:
+
+```ts title="auth.ts"
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { db } from "./db";
+
+export const auth = betterAuth({
+  database: drizzleAdapter(db, { provider: "pg" }),
+});
+```
+
+### Schema Not Applied
+
+After generating, remember to apply the schema:
+
+```bash
+# Prisma
+npx prisma db push
+
+# Drizzle
+npx drizzle-kit push
+
+# Kysely
+npx @better-auth/cli migrate
+```
+
+## See Also
+
+- [migrate Command](/api/cli/migrate) - Run migrations
+- [Prisma Adapter](/adapters/prisma) - Prisma setup
+- [Drizzle Adapter](/adapters/drizzle) - Drizzle setup
+- [Kysely Adapter](/adapters/kysely) - Kysely setup
+- [Custom Fields](/guides/custom-fields) - Adding custom fields

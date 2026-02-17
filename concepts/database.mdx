@@ -1,0 +1,652 @@
+---
+title: "Database"
+description: "Understanding database adapters, schema, and migrations in Better Auth"
+---
+
+## Overview
+
+Better Auth uses a flexible database adapter system that works with multiple databases and ORMs. The adapter abstracts database operations, allowing Better Auth to work seamlessly with your existing database setup.
+
+## Database Adapters
+
+### Supported Databases
+
+Better Auth supports these databases out of the box:
+
+- **PostgreSQL** (via Kysely, Drizzle, Prisma)
+- **MySQL** (via Kysely, Drizzle, Prisma)
+- **SQLite** (via Kysely, Drizzle, Prisma)
+- **MongoDB** (via MongoDB adapter)
+- **SQL Server** (via Kysely)
+
+### Adapter Architecture
+
+From `packages/core/src/db/adapter/index.ts:385`:
+
+```typescript
+interface DBAdapter {
+  id: string
+  
+  // CRUD operations
+  create<T>(data: {
+    model: string
+    data: Omit<T, "id">
+    select?: string[]
+    forceAllowId?: boolean
+  }): Promise<T>
+  
+  findOne<T>(data: {
+    model: string
+    where: Where[]
+    select?: string[]
+    join?: JoinOption
+  }): Promise<T | null>
+  
+  findMany<T>(data: {
+    model: string
+    where?: Where[]
+    limit?: number
+    sortBy?: { field: string; direction: "asc" | "desc" }
+    offset?: number
+    join?: JoinOption
+  }): Promise<T[]>
+  
+  update<T>(data: {
+    model: string
+    where: Where[]
+    update: Record<string, any>
+  }): Promise<T | null>
+  
+  updateMany(data: {
+    model: string
+    where: Where[]
+    update: Record<string, any>
+  }): Promise<number>
+  
+  delete(data: {
+    model: string
+    where: Where[]
+  }): Promise<void>
+  
+  deleteMany(data: {
+    model: string
+    where: Where[]
+  }): Promise<number>
+  
+  count(data: {
+    model: string
+    where?: Where[]
+  }): Promise<number>
+  
+  // Transaction support
+  transaction<R>(
+    callback: (trx: DBTransactionAdapter) => Promise<R>
+  ): Promise<R>
+  
+  // Schema generation
+  createSchema?: (options, file?) => Promise<DBAdapterSchemaCreation>
+}
+```
+
+### Where Clauses
+
+Adapters support a unified query interface:
+
+```typescript
+type Where = {
+  field: string
+  value: string | number | boolean | Date | string[] | number[] | null
+  operator?: 
+    | "eq"          // Equal (default)
+    | "ne"          // Not equal
+    | "lt"          // Less than
+    | "lte"         // Less than or equal
+    | "gt"          // Greater than
+    | "gte"         // Greater than or equal
+    | "in"          // In array
+    | "not_in"      // Not in array
+    | "contains"    // String contains
+    | "starts_with" // String starts with
+    | "ends_with"   // String ends with
+  connector?: "AND" | "OR"  // Default: "AND"
+}
+```
+
+**Examples:**
+
+```typescript
+// Find user by email
+await adapter.findOne({
+  model: "user",
+  where: [
+    { field: "email", value: "user@example.com" }
+  ]
+})
+
+// Find users with multiple conditions
+await adapter.findMany({
+  model: "user",
+  where: [
+    { field: "emailVerified", value: true },
+    { field: "createdAt", operator: "gte", value: new Date("2024-01-01") },
+  ]
+})
+
+// Complex query with OR
+await adapter.findMany({
+  model: "user",
+  where: [
+    { field: "role", value: "admin", connector: "OR" },
+    { field: "role", value: "moderator" },
+  ]
+})
+```
+
+## Using Adapters
+
+### Kysely (Built-in)
+
+Better Auth includes Kysely for automatic schema management:
+
+```typescript
+import { betterAuth } from "better-auth"
+import { Pool } from "pg"
+
+const auth = betterAuth({
+  database: new Pool({
+    connectionString: process.env.DATABASE_URL
+  })
+})
+
+// Kysely adapter is used automatically
+// Migrations are handled automatically
+```
+
+### Drizzle
+
+```typescript
+import { betterAuth } from "better-auth"
+import { drizzleAdapter } from "better-auth/adapters/drizzle"
+import { db } from "./db"  // Your Drizzle instance
+
+const auth = betterAuth({
+  database: drizzleAdapter(db, {
+    provider: "pg",  // "pg" | "mysql" | "sqlite"
+    usePlural: false,
+  })
+})
+```
+
+### Prisma
+
+```typescript
+import { betterAuth } from "better-auth"
+import { prismaAdapter } from "better-auth/adapters/prisma"
+import { prisma } from "./db"  // Your Prisma client
+
+const auth = betterAuth({
+  database: prismaAdapter(prisma, {
+    provider: "postgresql"
+  })
+})
+```
+
+### MongoDB
+
+```typescript
+import { betterAuth } from "better-auth"
+import { mongodbAdapter } from "better-auth/adapters/mongodb"
+import { MongoClient } from "mongodb"
+
+const client = new MongoClient(process.env.MONGODB_URI)
+await client.connect()
+
+const auth = betterAuth({
+  database: mongodbAdapter(client.db("myapp"))
+})
+```
+
+<Tip>
+See the [Adapters overview](/adapters/overview) for detailed setup guides for each adapter.
+</Tip>
+
+## Database Schema
+
+### Core Tables
+
+Better Auth requires four core tables:
+
+**1. User Table** - From `packages/core/src/db/schema/user.ts`:
+
+```typescript
+interface User {
+  id: string
+  email: string
+  emailVerified: boolean
+  name: string
+  image?: string | null
+  createdAt: Date
+  updatedAt: Date
+}
+```
+
+**2. Session Table** - From `packages/core/src/db/schema/session.ts`:
+
+```typescript
+interface Session {
+  id: string
+  userId: string               // Foreign key to user.id
+  token: string                // Unique session identifier
+  expiresAt: Date
+  ipAddress?: string | null
+  userAgent?: string | null
+  createdAt: Date
+  updatedAt: Date
+}
+```
+
+**3. Account Table**:
+
+```typescript
+interface Account {
+  id: string
+  userId: string               // Foreign key to user.id
+  providerId: string           // "credential", "google", "github", etc.
+  accountId: string            // Provider-specific user ID
+  accessToken?: string | null
+  refreshToken?: string | null
+  idToken?: string | null
+  accessTokenExpiresAt?: Date | null
+  refreshTokenExpiresAt?: Date | null
+  scope?: string | null
+  password?: string | null     // For credential provider
+  createdAt: Date
+  updatedAt: Date
+}
+```
+
+**4. Verification Table**:
+
+```typescript
+interface Verification {
+  id: string
+  identifier: string           // Email, phone, or other identifier
+  value: string                // Token or code
+  expiresAt: Date
+  createdAt: Date
+  updatedAt: Date
+}
+```
+
+### Schema Definition
+
+From `packages/core/src/db/type.ts:131`:
+
+```typescript
+type BetterAuthDBSchema = Record<string, {
+  modelName: string              // Table name in database
+  fields: Record<string, DBFieldAttribute>
+  disableMigrations?: boolean    // Skip migrations for this table
+  order?: number                 // Creation order
+}>
+
+type DBFieldAttribute = {
+  type: "string" | "number" | "boolean" | "date" | "json" | "string[]" | "number[]"
+  required?: boolean             // Default: true
+  returned?: boolean             // Include in responses (default: true)
+  input?: boolean                // Required on create (default: true)
+  defaultValue?: any             // Default value
+  unique?: boolean
+  references?: {
+    model: string
+    field: string
+    onDelete?: "cascade" | "set null" | "restrict" | "no action"
+  }
+  fieldName?: string             // Custom database column name
+  transform?: {
+    input?: (value) => any
+    output?: (value) => any
+  }
+  validator?: StandardSchemaV1   // Zod schema
+}
+```
+
+### Custom Fields
+
+Extend the user table with custom fields:
+
+```typescript
+const auth = betterAuth({
+  user: {
+    additionalFields: {
+      // Simple field
+      role: {
+        type: "string",
+        defaultValue: "user",
+        input: false,  // Not required on sign up
+      },
+      
+      // Field with validation
+      age: {
+        type: "number",
+        required: false,
+        validator: z.number().min(13).max(120),
+      },
+      
+      // Field with transform
+      username: {
+        type: "string",
+        unique: true,
+        transform: {
+          input: (value: string) => value.toLowerCase(),
+        }
+      },
+      
+      // JSON field
+      metadata: {
+        type: "json",
+        required: false,
+        defaultValue: {},
+      },
+      
+      // Custom database column name
+      fullName: {
+        type: "string",
+        fieldName: "full_name",  // Column in database
+      }
+    }
+  }
+})
+```
+
+### Custom Model Names
+
+Rename tables to match your schema:
+
+```typescript
+const auth = betterAuth({
+  user: {
+    modelName: "users",  // Use "users" instead of "user"
+    fields: {
+      email: {
+        fieldName: "email_address"  // Custom column name
+      }
+    }
+  },
+  session: {
+    modelName: "user_sessions"
+  },
+  account: {
+    modelName: "user_accounts"
+  }
+})
+```
+
+## Migrations
+
+### Automatic Migrations
+
+With Kysely, migrations are generated and run automatically:
+
+```bash
+# Generate migration files
+npx @better-auth/cli migrate
+
+# Run migrations programmatically
+await auth.runMigrations()
+```
+
+### Manual Schema Generation
+
+For Drizzle and Prisma, generate schema files:
+
+```bash
+# Drizzle
+npx @better-auth/cli generate --adapter drizzle --output src/db/schema.ts
+
+# Prisma
+npx @better-auth/cli generate --adapter prisma --output prisma/schema.prisma
+```
+
+Example generated Drizzle schema:
+
+```typescript
+import { pgTable, text, boolean, timestamp } from "drizzle-orm/pg-core"
+
+export const user = pgTable("user", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  emailVerified: boolean("emailVerified").notNull().default(false),
+  name: text("name").notNull(),
+  image: text("image"),
+  createdAt: timestamp("createdAt").notNull(),
+  updatedAt: timestamp("updatedAt").notNull(),
+})
+
+export const session = pgTable("session", {
+  id: text("id").primaryKey(),
+  userId: text("userId").notNull().references(() => user.id, { onDelete: "cascade" }),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  ipAddress: text("ipAddress"),
+  userAgent: text("userAgent"),
+  createdAt: timestamp("createdAt").notNull(),
+  updatedAt: timestamp("updatedAt").notNull(),
+})
+```
+
+### Plugin Migrations
+
+Plugins can extend the schema. From `packages/better-auth/src/plugins/two-factor/index.ts:435`:
+
+```typescript
+const twoFactorPlugin = {
+  id: "two-factor",
+  schema: {
+    user: {
+      fields: {
+        twoFactorEnabled: {
+          type: "boolean",
+          defaultValue: false,
+        }
+      }
+    },
+    twoFactor: {
+      modelName: "twoFactor",
+      fields: {
+        id: { type: "string", required: true },
+        secret: { type: "string", required: true },
+        backupCodes: { type: "string", required: true },
+        userId: {
+          type: "string",
+          required: true,
+          references: {
+            model: "user",
+            field: "id",
+            onDelete: "cascade"
+          }
+        },
+      }
+    }
+  }
+}
+```
+
+Migrations are generated automatically for plugin schema changes.
+
+## Transactions
+
+Adapters support transactions for atomic operations:
+
+```typescript
+await auth.api.createOAuthUser({
+  user: { email, name },
+  account: { providerId, accountId, accessToken }
+})
+
+// Internally uses transaction:
+await adapter.transaction(async (trx) => {
+  // Create user
+  const user = await trx.create({
+    model: "user",
+    data: { email, name, emailVerified: true }
+  })
+  
+  // Create account
+  const account = await trx.create({
+    model: "account",
+    data: { userId: user.id, providerId, accountId, accessToken }
+  })
+  
+  return { user, account }
+})
+```
+
+From `packages/core/src/db/adapter/index.ts:441`:
+
+```typescript
+transaction: async <R>(callback: (trx) => Promise<R>) => {
+  if (!config.transaction) {
+    // No transaction support - execute sequentially
+    return await callback(adapter)
+  }
+  
+  // Execute in transaction
+  return await config.transaction(async (trx) => {
+    return await callback(trx)
+  })
+}
+```
+
+## Adapter Factory
+
+Create custom adapters using the adapter factory:
+
+```typescript
+import { createAdapterFactory } from "@better-auth/core/db/adapter"
+
+const myAdapter = createAdapterFactory({
+  config: {
+    adapterId: "my-adapter",
+    supportsJSON: false,      // Adapter doesn't support JSON columns
+    supportsDates: true,      // Adapter supports Date objects
+    supportsBooleans: true,   // Adapter supports booleans
+    supportsArrays: false,    // Adapter doesn't support arrays
+  },
+  adapter: ({ schema, options }) => {
+    return {
+      create: async ({ model, data }) => {
+        // Your create logic
+      },
+      findOne: async ({ model, where }) => {
+        // Your findOne logic
+      },
+      // ... implement all methods
+    }
+  }
+})
+```
+
+The factory handles:
+- Data transformation (JSON serialization, date conversion, etc.)
+- Field name mapping
+- Default values
+- Validation
+- ID generation
+
+<Info>
+See [Custom Adapters guide](/adapters/custom) for a complete example.
+</Info>
+
+## Database Performance
+
+### Connection Pooling
+
+Use connection pools for better performance:
+
+```typescript
+// PostgreSQL with pg
+import { Pool } from "pg"
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 20,  // Maximum connections
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+})
+
+const auth = betterAuth({ database: pool })
+```
+
+### Query Optimization
+
+1. **Use select to limit fields**:
+
+```typescript
+await adapter.findOne({
+  model: "user",
+  where: [{ field: "id", value: userId }],
+  select: ["id", "email", "name"]  // Only fetch needed fields
+})
+```
+
+2. **Use joins to reduce queries**:
+
+```typescript
+await adapter.findOne({
+  model: "user",
+  where: [{ field: "id", value: userId }],
+  join: {
+    account: true,  // Join accounts
+    session: { limit: 5 }  // Join last 5 sessions
+  }
+})
+```
+
+3. **Enable session cookie caching**:
+
+```typescript
+const auth = betterAuth({
+  session: {
+    cookieCache: {
+      enabled: true,  // Cache session in cookie
+      maxAge: 5 * 60  // 5 minutes
+    }
+  }
+})
+```
+
+### Indexing
+
+Ensure proper indexes on frequently queried columns:
+
+```sql
+-- User table
+CREATE INDEX idx_user_email ON "user"(email);
+
+-- Session table
+CREATE INDEX idx_session_token ON session(token);
+CREATE INDEX idx_session_user_id ON session("userId");
+CREATE INDEX idx_session_expires ON session("expiresAt");
+
+-- Account table
+CREATE INDEX idx_account_user_id ON account("userId");
+CREATE INDEX idx_account_provider ON account("providerId", "accountId");
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Plugins" icon="puzzle-piece" href="/concepts/plugins">
+    Learn how plugins extend the schema
+  </Card>
+  <Card title="Drizzle Adapter" icon="droplet" href="/adapters/drizzle">
+    Set up Better Auth with Drizzle ORM
+  </Card>
+  <Card title="Prisma Adapter" icon="triangle" href="/adapters/prisma">
+    Set up Better Auth with Prisma
+  </Card>
+  <Card title="Custom Fields" icon="pencil" href="/guides/custom-fields">
+    Add custom fields to your schema
+  </Card>
+</CardGroup>

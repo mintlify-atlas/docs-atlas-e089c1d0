@@ -1,0 +1,380 @@
+---
+title: "Drizzle Adapter"
+description: "Use Drizzle ORM with Better Auth for lightweight, type-safe database operations"
+---
+
+## Overview
+
+The Drizzle adapter allows you to use [Drizzle ORM](https://orm.drizzle.team/) with Better Auth. Drizzle is a lightweight TypeScript ORM with SQL-like syntax and excellent type inference.
+
+## Installation
+
+Install Drizzle and the appropriate database driver:
+
+<Tabs>
+  <Tab title="PostgreSQL">
+    ```bash
+    npm install drizzle-orm pg
+    npm install -D drizzle-kit @types/pg
+    ```
+  </Tab>
+  <Tab title="MySQL">
+    ```bash
+    npm install drizzle-orm mysql2
+    npm install -D drizzle-kit
+    ```
+  </Tab>
+  <Tab title="SQLite">
+    ```bash
+    npm install drizzle-orm better-sqlite3
+    npm install -D drizzle-kit @types/better-sqlite3
+    ```
+  </Tab>
+</Tabs>
+
+## Configuration
+
+### Basic Setup
+
+Import the adapter and pass your Drizzle instance:
+
+<Tabs>
+  <Tab title="PostgreSQL">
+    ```typescript
+    import { betterAuth } from "better-auth";
+    import { drizzleAdapter } from "better-auth/adapters/drizzle-adapter";
+    import { drizzle } from "drizzle-orm/node-postgres";
+    import { Pool } from "pg";
+    import * as schema from "./schema";
+
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+    });
+
+    const db = drizzle(pool, { schema });
+
+    export const auth = betterAuth({
+      database: drizzleAdapter(db, {
+        provider: "pg",
+        schema, // Pass your schema for type inference
+      }),
+    });
+    ```
+  </Tab>
+
+  <Tab title="MySQL">
+    ```typescript
+    import { betterAuth } from "better-auth";
+    import { drizzleAdapter } from "better-auth/adapters/drizzle-adapter";
+    import { drizzle } from "drizzle-orm/mysql2";
+    import mysql from "mysql2/promise";
+    import * as schema from "./schema";
+
+    const connection = await mysql.createConnection({
+      host: "localhost",
+      user: "root",
+      database: "better_auth",
+    });
+
+    const db = drizzle(connection, { schema });
+
+    export const auth = betterAuth({
+      database: drizzleAdapter(db, {
+        provider: "mysql",
+        schema,
+      }),
+    });
+    ```
+  </Tab>
+
+  <Tab title="SQLite">
+    ```typescript
+    import { betterAuth } from "better-auth";
+    import { drizzleAdapter } from "better-auth/adapters/drizzle-adapter";
+    import { drizzle } from "drizzle-orm/better-sqlite3";
+    import Database from "better-sqlite3";
+    import * as schema from "./schema";
+
+    const sqlite = new Database("sqlite.db");
+    const db = drizzle(sqlite, { schema });
+
+    export const auth = betterAuth({
+      database: drizzleAdapter(db, {
+        provider: "sqlite",
+        schema,
+      }),
+    });
+    ```
+  </Tab>
+</Tabs>
+
+### Adapter Options
+
+The Drizzle adapter accepts the following configuration options:
+
+<ParamField path="provider" type="string" required>
+  Database provider. One of: `pg` (PostgreSQL), `mysql`, or `sqlite`
+</ParamField>
+
+<ParamField path="schema" type="object">
+  Your Drizzle schema object. Required for proper type inference and joins.
+</ParamField>
+
+<ParamField path="debugLogs" type="boolean | object" default="false">
+  Enable debug logs for the adapter.
+
+  ```typescript
+  debugLogs: true
+  // or
+  debugLogs: { isRunningAdapterTests: true }
+  ```
+</ParamField>
+
+<ParamField path="usePlural" type="boolean" default="false">
+  Use plural table names (e.g., `users` instead of `user`).
+</ParamField>
+
+<ParamField path="camelCase" type="boolean" default="false">
+  Use camelCase for field names instead of snake_case.
+</ParamField>
+
+<ParamField path="transaction" type="boolean" default="false">
+  Enable database transactions for atomic operations.
+</ParamField>
+
+## Schema Generation
+
+Generate your Drizzle schema using the Better Auth CLI:
+
+```bash
+npx @better-auth/cli generate
+```
+
+This creates a schema file with all necessary tables.
+
+### Example Schema
+
+Here's what a basic Drizzle schema looks like:
+
+<Tabs>
+  <Tab title="PostgreSQL">
+    ```typescript
+    import { pgTable, text, timestamp, integer } from "drizzle-orm/pg-core";
+
+    export const user = pgTable("user", {
+      id: text("id").primaryKey(),
+      name: text("name"),
+      email: text("email").notNull().unique(),
+      emailVerified: timestamp("email_verified", { mode: "date" }),
+      image: text("image"),
+      createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+    });
+
+    export const session = pgTable("session", {
+      id: text("id").primaryKey(),
+      sessionToken: text("session_token").notNull().unique(),
+      userId: text("user_id")
+        .notNull()
+        .references(() => user.id, { onDelete: "cascade" }),
+      expires: timestamp("expires", { mode: "date" }).notNull(),
+      createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+    });
+
+    export const account = pgTable("account", {
+      id: text("id").primaryKey(),
+      userId: text("user_id")
+        .notNull()
+        .references(() => user.id, { onDelete: "cascade" }),
+      type: text("type").notNull(),
+      provider: text("provider").notNull(),
+      providerAccountId: text("provider_account_id").notNull(),
+      refresh_token: text("refresh_token"),
+      access_token: text("access_token"),
+      expires_at: integer("expires_at"),
+      token_type: text("token_type"),
+      scope: text("scope"),
+      id_token: text("id_token"),
+      session_state: text("session_state"),
+    });
+
+    export const verificationToken = pgTable("verification_token", {
+      identifier: text("identifier").notNull(),
+      token: text("token").notNull().unique(),
+      expires: timestamp("expires", { mode: "date" }).notNull(),
+    });
+    ```
+  </Tab>
+
+  <Tab title="MySQL">
+    ```typescript
+    import { mysqlTable, varchar, timestamp, int } from "drizzle-orm/mysql-core";
+
+    export const user = mysqlTable("user", {
+      id: varchar("id", { length: 255 }).primaryKey(),
+      name: varchar("name", { length: 255 }),
+      email: varchar("email", { length: 255 }).notNull().unique(),
+      emailVerified: timestamp("email_verified"),
+      image: varchar("image", { length: 255 }),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    });
+
+    export const session = mysqlTable("session", {
+      id: varchar("id", { length: 255 }).primaryKey(),
+      sessionToken: varchar("session_token", { length: 255 }).notNull().unique(),
+      userId: varchar("user_id", { length: 255 })
+        .notNull()
+        .references(() => user.id, { onDelete: "cascade" }),
+      expires: timestamp("expires").notNull(),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    });
+
+    // Additional tables follow similar pattern
+    ```
+  </Tab>
+
+  <Tab title="SQLite">
+    ```typescript
+    import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+
+    export const user = sqliteTable("user", {
+      id: text("id").primaryKey(),
+      name: text("name"),
+      email: text("email").notNull().unique(),
+      emailVerified: integer("email_verified", { mode: "timestamp" }),
+      image: text("image"),
+      createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+      updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+    });
+
+    export const session = sqliteTable("session", {
+      id: text("id").primaryKey(),
+      sessionToken: text("session_token").notNull().unique(),
+      userId: text("user_id")
+        .notNull()
+        .references(() => user.id, { onDelete: "cascade" }),
+      expires: integer("expires", { mode: "timestamp" }).notNull(),
+      createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+      updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+    });
+
+    // Additional tables follow similar pattern
+    ```
+  </Tab>
+</Tabs>
+
+## Migrations
+
+Create and apply migrations using Drizzle Kit:
+
+```bash
+# Generate migrations
+npx drizzle-kit generate
+
+# Apply migrations
+npx drizzle-kit push
+
+# Or use migrate for versioned migrations
+npx drizzle-kit migrate
+```
+
+### Drizzle Config
+
+Create a `drizzle.config.ts` file:
+
+```typescript
+import type { Config } from "drizzle-kit";
+
+export default {
+  schema: "./src/schema.ts",
+  out: "./drizzle",
+  dialect: "postgresql", // or "mysql", "sqlite"
+  dbCredentials: {
+    url: process.env.DATABASE_URL!,
+  },
+} satisfies Config;
+```
+
+## Using Transactions
+
+Enable transactions for atomic operations:
+
+```typescript
+import { drizzleAdapter } from "better-auth/adapters/drizzle-adapter";
+import { drizzle } from "drizzle-orm/node-postgres";
+
+const db = drizzle(pool, { schema });
+
+export const auth = betterAuth({
+  database: drizzleAdapter(db, {
+    provider: "pg",
+    schema,
+    transaction: true, // Enable transactions
+  }),
+});
+```
+
+## Experimental Joins
+
+Drizzle adapter supports experimental joins for efficient data fetching:
+
+```typescript
+export const auth = betterAuth({
+  database: drizzleAdapter(db, {
+    provider: "pg",
+    schema,
+  }),
+  experimental: {
+    joins: true, // Enable joins
+  },
+});
+```
+
+<Warning>
+  Joins are experimental and require your schema to include relations. Make sure to define relations in your Drizzle schema.
+</Warning>
+
+## Common Issues
+
+### Schema not found error
+
+If you see "The model X was not found in the schema object":
+
+1. Make sure you're passing the schema to the adapter
+2. Check that your schema exports match the expected table names
+3. Verify your schema file is being imported correctly
+
+### Field not found error
+
+If you see "The field X does not exist in the Y schema":
+
+1. Regenerate your schema: `npx @better-auth/cli generate`
+2. Run migrations: `npx drizzle-kit push`
+3. Restart your development server
+
+## Example Projects
+
+See complete examples using Drizzle adapter:
+
+- [Next.js + Drizzle + PostgreSQL](https://github.com/better-auth/better-auth/tree/main/examples/nextjs-drizzle-postgres)
+- [SvelteKit + Drizzle + SQLite](https://github.com/better-auth/better-auth/tree/main/examples/sveltekit-drizzle-sqlite)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Learn about all configuration options
+  </Card>
+  <Card title="Custom Fields" icon="database" href="/guides/custom-fields">
+    Add custom fields to your database
+  </Card>
+  <Card title="Email Verification" icon="envelope" href="/guides/email-verification">
+    Set up email verification
+  </Card>
+  <Card title="OAuth Setup" icon="key" href="/guides/oauth-setup">
+    Configure social providers
+  </Card>
+</CardGroup>

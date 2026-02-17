@@ -1,0 +1,235 @@
+---
+title: Vanilla JavaScript Client
+description: Use Better Auth with vanilla JavaScript or TypeScript.
+---
+
+The vanilla JavaScript client provides the core Better Auth client functionality without any framework-specific features. It's perfect for vanilla JavaScript projects, server-side rendering, or as a foundation for custom framework integrations.
+
+## Installation
+
+```package-install
+better-auth
+```
+
+## Create a Client
+
+Create a client instance by importing `createAuthClient` from `better-auth/client`:
+
+```ts title="auth-client.ts"
+import { createAuthClient } from "better-auth/client";
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000", // the base url of your auth server
+});
+```
+
+<Callout type="info">
+  The base URL should point to your Better Auth server endpoint. If you're using the default setup, it's typically `http://localhost:3000/api/auth`.
+</Callout>
+
+## Configuration
+
+You can pass additional options to configure the client:
+
+```ts title="auth-client.ts"
+import { createAuthClient } from "better-auth/client";
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  fetchOptions: {
+    credentials: "include", // include cookies in requests
+    headers: {
+      "Content-Type": "application/json",
+    },
+    onError(context) {
+      // handle errors globally
+      console.error("Auth error:", context.error);
+    },
+    onSuccess(context) {
+      // handle successful requests
+      console.log("Auth success:", context.data);
+    },
+  },
+  plugins: [], // add client plugins here
+});
+```
+
+## Usage
+
+### Authentication Methods
+
+The client provides methods for all authentication actions:
+
+```ts
+// Sign up with email and password
+await authClient.signUp.email({
+  email: "user@example.com",
+  password: "securepassword",
+  name: "John Doe",
+});
+
+// Sign in with email and password
+await authClient.signIn.email({
+  email: "user@example.com",
+  password: "securepassword",
+  rememberMe: true,
+});
+
+// Sign out
+await authClient.signOut();
+```
+
+### Session Management
+
+The vanilla client uses [nanostores](https://github.com/nanostores/nanostores) for reactive state management:
+
+```ts
+import { authClient } from "./auth-client";
+
+// Subscribe to session changes
+const unsubscribe = authClient.useSession.subscribe((session) => {
+  console.log("Session:", session.data);
+  console.log("Loading:", session.isPending);
+  console.log("Error:", session.error);
+});
+
+// Get current session value
+const currentSession = authClient.useSession.get();
+
+// Manually refetch session
+await currentSession.refetch();
+
+// Clean up subscription when done
+unsubscribe();
+```
+
+### Type-Safe Session Data
+
+The client provides full TypeScript support for session data:
+
+```ts
+// Infer session type
+type Session = typeof authClient.$Infer.Session;
+
+// Access typed session data
+const session = authClient.useSession.get();
+if (session.data) {
+  const user = session.data.user;
+  console.log(user.email); // fully typed
+  console.log(user.name); // fully typed
+}
+```
+
+## Direct API Access
+
+### Using $fetch
+
+You can use the `$fetch` method to make direct API calls:
+
+```ts
+// Make a custom API request
+const response = await authClient.$fetch("/custom-endpoint", {
+  method: "POST",
+  body: {
+    data: "value",
+  },
+});
+```
+
+### Using $store
+
+Access the underlying store for advanced use cases:
+
+```ts
+// Access the session atom directly
+const sessionAtom = authClient.$store.atoms.session;
+
+// Subscribe to specific atoms
+const unsubscribe = sessionAtom.subscribe((value) => {
+  console.log("Session changed:", value);
+});
+```
+
+## Error Handling
+
+The client provides typed error codes:
+
+```ts
+try {
+  await authClient.signIn.email({
+    email: "user@example.com",
+    password: "wrong",
+  });
+} catch (error) {
+  // Access typed error codes
+  const errorCode = authClient.$ERROR_CODES.INVALID_CREDENTIALS;
+  console.error("Error:", error);
+}
+```
+
+## With Plugins
+
+You can extend the client with plugins:
+
+```ts title="auth-client.ts"
+import { createAuthClient } from "better-auth/client";
+import { organizationClient } from "better-auth/client/plugins";
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  plugins: [
+    organizationClient(), // adds organization methods to the client
+  ],
+});
+
+// Use plugin methods
+await authClient.organization.create({
+  name: "My Organization",
+});
+```
+
+## Advanced Usage
+
+### Custom Fetch Implementation
+
+You can provide a custom fetch implementation:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  fetchOptions: {
+    customFetchImpl: async (url, init) => {
+      // Add custom headers, logging, etc.
+      console.log("Fetching:", url);
+      return fetch(url, init);
+    },
+  },
+});
+```
+
+### Server-Side Usage
+
+The vanilla client works on both client and server:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+
+// In Node.js or other server environments
+const serverAuthClient = createAuthClient({
+  baseURL: "http://localhost:3000",
+  fetchOptions: {
+    headers: {
+      // Pass cookies manually in server environments
+      cookie: "session=...",
+    },
+  },
+});
+
+const session = await serverAuthClient.getSession();
+```
+
+## API Reference
+
+For a complete list of available methods and their types, see the [Client API Reference](/docs/api/client/methods).

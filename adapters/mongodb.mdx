@@ -1,0 +1,343 @@
+---
+title: "MongoDB Adapter"
+description: "Use MongoDB with Better Auth for flexible document-based authentication"
+---
+
+## Overview
+
+The MongoDB adapter allows you to use [MongoDB](https://www.mongodb.com/) as your database with Better Auth. MongoDB is a popular NoSQL document database that offers flexibility and scalability.
+
+## Installation
+
+Install the MongoDB driver:
+
+```bash
+npm install mongodb
+```
+
+## Configuration
+
+### Basic Setup
+
+Import the adapter and pass your MongoDB database instance:
+
+```typescript
+import { betterAuth } from "better-auth";
+import { mongodbAdapter } from "better-auth/adapters/mongodb-adapter";
+import { MongoClient } from "mongodb";
+
+const client = new MongoClient(process.env.MONGODB_URI!);
+await client.connect();
+
+const db = client.db("better_auth");
+
+export const auth = betterAuth({
+  database: mongodbAdapter(db, {
+    client, // Required for transactions
+  }),
+});
+```
+
+### Adapter Options
+
+The MongoDB adapter accepts the following configuration options:
+
+<ParamField path="client" type="MongoClient">
+  MongoDB client instance. Required if you want to use transactions.
+</ParamField>
+
+<ParamField path="debugLogs" type="boolean | object" default="false">
+  Enable debug logs for the adapter.
+
+  ```typescript
+  debugLogs: true
+  // or
+  debugLogs: { isRunningAdapterTests: true }
+  ```
+</ParamField>
+
+<ParamField path="usePlural" type="boolean" default="false">
+  Use plural collection names (e.g., `users` instead of `user`).
+</ParamField>
+
+<ParamField path="transaction" type="boolean | undefined">
+  Enable database transactions. Defaults to `true` when a client is provided.
+  
+  <Warning>
+    Transactions require a MongoDB replica set. If you're using a standalone MongoDB instance, set this to `false`.
+  </Warning>
+
+  ```typescript
+  mongodbAdapter(db, {
+    client,
+    transaction: false, // Disable for standalone instances
+  })
+  ```
+</ParamField>
+
+## Schema Generation
+
+MongoDB is schemaless, but Better Auth still needs to know about your collections. Generate the schema:
+
+```bash
+npx @better-auth/cli generate
+```
+
+This ensures Better Auth knows which collections and fields to use.
+
+### Collection Structure
+
+Better Auth creates the following collections:
+
+#### User Collection
+
+```javascript
+{
+  _id: ObjectId("..."),
+  name: "John Doe",
+  email: "john@example.com",
+  emailVerified: ISODate("2024-01-01T00:00:00Z"),
+  image: "https://example.com/avatar.jpg",
+  createdAt: ISODate("2024-01-01T00:00:00Z"),
+  updatedAt: ISODate("2024-01-01T00:00:00Z")
+}
+```
+
+#### Session Collection
+
+```javascript
+{
+  _id: ObjectId("..."),
+  sessionToken: "unique-session-token",
+  userId: ObjectId("..."),
+  expires: ISODate("2024-02-01T00:00:00Z"),
+  createdAt: ISODate("2024-01-01T00:00:00Z"),
+  updatedAt: ISODate("2024-01-01T00:00:00Z")
+}
+```
+
+#### Account Collection
+
+```javascript
+{
+  _id: ObjectId("..."),
+  userId: ObjectId("..."),
+  type: "oauth",
+  provider: "google",
+  providerAccountId: "google-user-id",
+  refresh_token: "refresh-token",
+  access_token: "access-token",
+  expires_at: 1704067200,
+  token_type: "Bearer",
+  scope: "email profile",
+  id_token: "id-token",
+  session_state: null
+}
+```
+
+#### Verification Token Collection
+
+```javascript
+{
+  identifier: "john@example.com",
+  token: "verification-token",
+  expires: ISODate("2024-01-02T00:00:00Z")
+}
+```
+
+## ID Field Mapping
+
+MongoDB uses `_id` as the primary key field, but Better Auth uses `id`. The adapter automatically handles this mapping:
+
+- Queries using `id` are converted to `_id`
+- Results with `_id` are converted to `id`
+- `ObjectId` values are converted to strings in responses
+
+### Custom ID Generation
+
+By default, MongoDB generates `ObjectId` values. To use custom IDs:
+
+```typescript
+export const auth = betterAuth({
+  database: mongodbAdapter(db, { client }),
+  advanced: {
+    database: {
+      generateId: () => {
+        // Return your custom ID (must be a string)
+        return customIdGenerator();
+      },
+    },
+  },
+});
+```
+
+## Using Transactions
+
+Transactions require a MongoDB replica set. Here's how to set them up:
+
+### Development (Docker)
+
+Use Docker Compose to run a replica set locally:
+
+```yaml
+version: '3.8'
+services:
+  mongo:
+    image: mongo:7
+    command: mongod --replSet rs0
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+volumes:
+  mongo_data:
+```
+
+Initialize the replica set:
+
+```bash
+docker exec -it <container-id> mongosh --eval "rs.initiate()"
+```
+
+### Production
+
+Most MongoDB hosting providers (MongoDB Atlas, etc.) provide replica sets by default. Enable transactions:
+
+```typescript
+import { MongoClient } from "mongodb";
+import { mongodbAdapter } from "better-auth/adapters/mongodb-adapter";
+
+const client = new MongoClient(process.env.MONGODB_URI!);
+await client.connect();
+
+const db = client.db();
+
+export const auth = betterAuth({
+  database: mongodbAdapter(db, {
+    client, // Required for transactions
+    transaction: true, // Enable transactions
+  }),
+});
+```
+
+### Standalone MongoDB
+
+If you're using a standalone MongoDB instance (no replica set), disable transactions:
+
+```typescript
+export const auth = betterAuth({
+  database: mongodbAdapter(db, {
+    transaction: false, // Disable transactions
+  }),
+});
+```
+
+## Indexes
+
+For optimal performance, create indexes on frequently queried fields:
+
+```javascript
+// User collection indexes
+db.user.createIndex({ email: 1 }, { unique: true });
+
+// Session collection indexes
+db.session.createIndex({ sessionToken: 1 }, { unique: true });
+db.session.createIndex({ userId: 1 });
+db.session.createIndex({ expires: 1 });
+
+// Account collection indexes
+db.account.createIndex({ userId: 1 });
+db.account.createIndex({ provider: 1, providerAccountId: 1 }, { unique: true });
+
+// Verification token indexes
+db.verificationToken.createIndex({ token: 1 }, { unique: true });
+db.verificationToken.createIndex({ identifier: 1, token: 1 }, { unique: true });
+db.verificationToken.createIndex({ expires: 1 }, { expireAfterSeconds: 0 });
+```
+
+### Automatic Index Creation
+
+You can create a script to automatically set up indexes:
+
+```typescript
+import { MongoClient } from "mongodb";
+
+const client = new MongoClient(process.env.MONGODB_URI!);
+await client.connect();
+
+const db = client.db("better_auth");
+
+// Create indexes
+await db.collection("user").createIndex({ email: 1 }, { unique: true });
+await db.collection("session").createIndex({ sessionToken: 1 }, { unique: true });
+await db.collection("session").createIndex({ userId: 1 });
+await db.collection("account").createIndex(
+  { provider: 1, providerAccountId: 1 },
+  { unique: true }
+);
+
+await client.close();
+```
+
+## Aggregation Pipeline
+
+The MongoDB adapter uses aggregation pipelines for joins and complex queries. This provides efficient data fetching:
+
+```typescript
+// Example: Get user with their sessions
+const user = await auth.api.getUser({
+  userId: "user-id",
+  // Automatically joins related sessions using $lookup
+});
+```
+
+## Common Issues
+
+### Transactions not supported
+
+If you see "Transaction not supported" errors:
+
+1. Check if you're using a replica set: `rs.status()` in mongosh
+2. If using standalone MongoDB, set `transaction: false`
+3. For local development, use Docker Compose with replica set
+
+### ObjectId casting errors
+
+If you see "Invalid ObjectId" errors:
+
+1. Ensure you're passing string IDs, not ObjectId instances
+2. The adapter automatically handles ObjectId conversion
+3. Check that your custom ID generator returns strings
+
+### Connection issues
+
+If you can't connect to MongoDB:
+
+1. Verify your connection string format
+2. Check network access rules (MongoDB Atlas)
+3. Ensure the database name matches your configuration
+
+## Example Projects
+
+See complete examples using MongoDB adapter:
+
+- [Next.js + MongoDB](https://github.com/better-auth/better-auth/tree/main/examples/nextjs-mongodb)
+- [Express + MongoDB](https://github.com/better-auth/better-auth/tree/main/examples/express-mongodb)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Learn about all configuration options
+  </Card>
+  <Card title="Custom Fields" icon="database" href="/guides/custom-fields">
+    Add custom fields to your database
+  </Card>
+  <Card title="Email Verification" icon="envelope" href="/guides/email-verification">
+    Set up email verification
+  </Card>
+  <Card title="OAuth Setup" icon="key" href="/guides/oauth-setup">
+    Configure social providers
+  </Card>
+</CardGroup>

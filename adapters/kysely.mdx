@@ -1,0 +1,502 @@
+---
+title: "Kysely Adapter"
+description: "Use Kysely with Better Auth for type-safe SQL query building"
+---
+
+## Overview
+
+The Kysely adapter allows you to use [Kysely](https://kysely.dev/) as your query builder with Better Auth. Kysely is a type-safe SQL query builder that provides excellent TypeScript inference and works with multiple databases.
+
+## Installation
+
+Install Kysely and the appropriate database driver:
+
+<Tabs>
+  <Tab title="PostgreSQL">
+    ```bash
+    npm install kysely pg
+    npm install -D @types/pg
+    ```
+  </Tab>
+  <Tab title="MySQL">
+    ```bash
+    npm install kysely mysql2
+    ```
+  </Tab>
+  <Tab title="SQLite">
+    ```bash
+    npm install kysely better-sqlite3
+    npm install -D @types/better-sqlite3
+    ```
+  </Tab>
+  <Tab title="SQL Server">
+    ```bash
+    npm install kysely tedious
+    npm install -D @types/tedious
+    ```
+  </Tab>
+</Tabs>
+
+## Configuration
+
+### Basic Setup
+
+Import the adapter and pass your Kysely instance:
+
+<Tabs>
+  <Tab title="PostgreSQL">
+    ```typescript
+    import { betterAuth } from "better-auth";
+    import { kyselyAdapter } from "better-auth/adapters/kysely-adapter";
+    import { Kysely, PostgresDialect } from "kysely";
+    import { Pool } from "pg";
+
+    const db = new Kysely({
+      dialect: new PostgresDialect({
+        pool: new Pool({
+          connectionString: process.env.DATABASE_URL,
+        }),
+      }),
+    });
+
+    export const auth = betterAuth({
+      database: kyselyAdapter(db, {
+        type: "postgres",
+      }),
+    });
+    ```
+  </Tab>
+
+  <Tab title="MySQL">
+    ```typescript
+    import { betterAuth } from "better-auth";
+    import { kyselyAdapter } from "better-auth/adapters/kysely-adapter";
+    import { Kysely, MysqlDialect } from "kysely";
+    import { createPool } from "mysql2";
+
+    const db = new Kysely({
+      dialect: new MysqlDialect({
+        pool: createPool({
+          host: "localhost",
+          user: "root",
+          password: "password",
+          database: "better_auth",
+        }),
+      }),
+    });
+
+    export const auth = betterAuth({
+      database: kyselyAdapter(db, {
+        type: "mysql",
+      }),
+    });
+    ```
+  </Tab>
+
+  <Tab title="SQLite">
+    ```typescript
+    import { betterAuth } from "better-auth";
+    import { kyselyAdapter } from "better-auth/adapters/kysely-adapter";
+    import { Kysely, SqliteDialect } from "kysely";
+    import Database from "better-sqlite3";
+
+    const db = new Kysely({
+      dialect: new SqliteDialect({
+        database: new Database("db.sqlite"),
+      }),
+    });
+
+    export const auth = betterAuth({
+      database: kyselyAdapter(db, {
+        type: "sqlite",
+      }),
+    });
+    ```
+  </Tab>
+
+  <Tab title="SQL Server">
+    ```typescript
+    import { betterAuth } from "better-auth";
+    import { kyselyAdapter } from "better-auth/adapters/kysely-adapter";
+    import { Kysely, MssqlDialect } from "kysely";
+    import { Pool } from "tedious";
+    import { Tedious } from "tedious";
+
+    const db = new Kysely({
+      dialect: new MssqlDialect({
+        tedious: {
+          server: "localhost",
+          authentication: {
+            type: "default",
+            options: {
+              userName: "sa",
+              password: "password",
+            },
+          },
+          options: {
+            database: "better_auth",
+            trustServerCertificate: true,
+          },
+        },
+      }),
+    });
+
+    export const auth = betterAuth({
+      database: kyselyAdapter(db, {
+        type: "mssql",
+      }),
+    });
+    ```
+  </Tab>
+</Tabs>
+
+### Adapter Options
+
+The Kysely adapter accepts the following configuration options:
+
+<ParamField path="type" type="string">
+  Database type. One of: `postgres`, `mysql`, `sqlite`, or `mssql`. Used to handle database-specific features.
+</ParamField>
+
+<ParamField path="debugLogs" type="boolean | object" default="false">
+  Enable debug logs for the adapter.
+
+  ```typescript
+  debugLogs: true
+  // or
+  debugLogs: { isRunningAdapterTests: true }
+  ```
+</ParamField>
+
+<ParamField path="usePlural" type="boolean" default="false">
+  Use plural table names (e.g., `users` instead of `user`).
+</ParamField>
+
+<ParamField path="transaction" type="boolean" default="false">
+  Enable database transactions for atomic operations.
+</ParamField>
+
+## Schema Generation
+
+Generate your database schema using the Better Auth CLI:
+
+```bash
+npx @better-auth/cli generate
+```
+
+### TypeScript Types
+
+For full type safety, define your database schema types:
+
+```typescript
+import type { Generated, Insertable, Selectable, Updateable } from "kysely";
+
+export interface Database {
+  user: UserTable;
+  session: SessionTable;
+  account: AccountTable;
+  verificationToken: VerificationTokenTable;
+}
+
+export interface UserTable {
+  id: Generated<string>;
+  name: string | null;
+  email: string;
+  emailVerified: Date | null;
+  image: string | null;
+  createdAt: Generated<Date>;
+  updatedAt: Generated<Date>;
+}
+
+export interface SessionTable {
+  id: Generated<string>;
+  sessionToken: string;
+  userId: string;
+  expires: Date;
+  createdAt: Generated<Date>;
+  updatedAt: Generated<Date>;
+}
+
+export interface AccountTable {
+  id: Generated<string>;
+  userId: string;
+  type: string;
+  provider: string;
+  providerAccountId: string;
+  refresh_token: string | null;
+  access_token: string | null;
+  expires_at: number | null;
+  token_type: string | null;
+  scope: string | null;
+  id_token: string | null;
+  session_state: string | null;
+}
+
+export interface VerificationTokenTable {
+  identifier: string;
+  token: string;
+  expires: Date;
+}
+
+export type User = Selectable<UserTable>;
+export type NewUser = Insertable<UserTable>;
+export type UserUpdate = Updateable<UserTable>;
+
+// Create typed Kysely instance
+const db = new Kysely<Database>({
+  dialect: new PostgresDialect({
+    pool: new Pool({
+      connectionString: process.env.DATABASE_URL,
+    }),
+  }),
+});
+```
+
+## Migrations
+
+Kysely has a built-in migration system:
+
+### Create Migration
+
+```typescript
+import { Kysely, sql } from "kysely";
+
+export async function up(db: Kysely<any>): Promise<void> {
+  await db.schema
+    .createTable("user")
+    .addColumn("id", "varchar(255)", (col) => col.primaryKey())
+    .addColumn("name", "varchar(255)")
+    .addColumn("email", "varchar(255)", (col) => col.notNull().unique())
+    .addColumn("email_verified", "timestamp")
+    .addColumn("image", "varchar(255)")
+    .addColumn("created_at", "timestamp", (col) =>
+      col.notNull().defaultTo(sql`CURRENT_TIMESTAMP`)
+    )
+    .addColumn("updated_at", "timestamp", (col) =>
+      col.notNull().defaultTo(sql`CURRENT_TIMESTAMP`)
+    )
+    .execute();
+
+  await db.schema
+    .createTable("session")
+    .addColumn("id", "varchar(255)", (col) => col.primaryKey())
+    .addColumn("session_token", "varchar(255)", (col) => col.notNull().unique())
+    .addColumn("user_id", "varchar(255)", (col) =>
+      col.notNull().references("user.id").onDelete("cascade")
+    )
+    .addColumn("expires", "timestamp", (col) => col.notNull())
+    .addColumn("created_at", "timestamp", (col) =>
+      col.notNull().defaultTo(sql`CURRENT_TIMESTAMP`)
+    )
+    .addColumn("updated_at", "timestamp", (col) =>
+      col.notNull().defaultTo(sql`CURRENT_TIMESTAMP`)
+    )
+    .execute();
+
+  // Add more tables...
+}
+
+export async function down(db: Kysely<any>): Promise<void> {
+  await db.schema.dropTable("session").execute();
+  await db.schema.dropTable("user").execute();
+  // Drop more tables...
+}
+```
+
+### Run Migrations
+
+```typescript
+import { promises as fs } from "fs";
+import { FileMigrationProvider, Migrator } from "kysely";
+import * as path from "path";
+
+async function migrateToLatest() {
+  const migrator = new Migrator({
+    db,
+    provider: new FileMigrationProvider({
+      fs,
+      path,
+      migrationFolder: path.join(__dirname, "migrations"),
+    }),
+  });
+
+  const { error, results } = await migrator.migrateToLatest();
+
+  results?.forEach((it) => {
+    if (it.status === "Success") {
+      console.log(`migration "${it.migrationName}" was executed successfully`);
+    } else if (it.status === "Error") {
+      console.error(`failed to execute migration "${it.migrationName}"`);
+    }
+  });
+
+  if (error) {
+    console.error("failed to migrate");
+    console.error(error);
+    process.exit(1);
+  }
+
+  await db.destroy();
+}
+
+migrateToLatest();
+```
+
+## Database-Specific Features
+
+### PostgreSQL
+
+```typescript
+import { kyselyAdapter } from "better-auth/adapters/kysely-adapter";
+
+export const auth = betterAuth({
+  database: kyselyAdapter(db, {
+    type: "postgres",
+  }),
+});
+```
+
+PostgreSQL supports:
+- UUIDs (native)
+- JSON columns
+- Arrays
+- Transactions
+- Booleans (native)
+- Dates (native)
+
+### MySQL
+
+```typescript
+export const auth = betterAuth({
+  database: kyselyAdapter(db, {
+    type: "mysql",
+  }),
+});
+```
+
+MySQL limitations:
+- No native UUID support (use string IDs)
+- Limited JSON support
+- No array support
+- Boolean stored as tinyint
+- Date handling differences
+
+### SQLite
+
+```typescript
+export const auth = betterAuth({
+  database: kyselyAdapter(db, {
+    type: "sqlite",
+  }),
+});
+```
+
+SQLite limitations:
+- No native UUID support
+- No native boolean (use 0/1)
+- No native date (use integer timestamps)
+- Limited transaction features
+
+### SQL Server
+
+```typescript
+export const auth = betterAuth({
+  database: kyselyAdapter(db, {
+    type: "mssql",
+  }),
+});
+```
+
+SQL Server features:
+- Uses `OUTPUT INSERTED.*` instead of `RETURNING`
+- Uses `TOP` instead of `LIMIT`
+- Uses `OFFSET ... FETCH` for pagination
+
+## Using Transactions
+
+Enable transactions for atomic operations:
+
+```typescript
+import { kyselyAdapter } from "better-auth/adapters/kysely-adapter";
+
+export const auth = betterAuth({
+  database: kyselyAdapter(db, {
+    type: "postgres",
+    transaction: true, // Enable transactions
+  }),
+});
+```
+
+This wraps multi-step operations in a transaction automatically.
+
+## Query Logging
+
+Enable query logging for debugging:
+
+```typescript
+import { Kysely, PostgresDialect } from "kysely";
+
+const db = new Kysely({
+  dialect: new PostgresDialect({
+    pool: new Pool({
+      connectionString: process.env.DATABASE_URL,
+    }),
+  }),
+  log(event) {
+    if (event.level === "query") {
+      console.log(event.query.sql);
+      console.log(event.query.parameters);
+    }
+  },
+});
+```
+
+## Common Issues
+
+### Type inference not working
+
+If TypeScript isn't inferring types correctly:
+
+1. Make sure you're using the typed `Kysely<Database>` instance
+2. Define your database schema interface
+3. Pass the schema type when creating Kysely
+
+### Returning clause not supported (MySQL)
+
+MySQL doesn't support `RETURNING`. The adapter handles this automatically by:
+
+1. Executing the operation
+2. Querying the inserted/updated row
+3. Returning the result
+
+### Migration errors
+
+If migrations fail:
+
+1. Check your migration file syntax
+2. Ensure tables are created in the correct order (respect foreign keys)
+3. Use `down` migrations for rollbacks
+
+## Example Projects
+
+See complete examples using Kysely adapter:
+
+- [Next.js + Kysely + PostgreSQL](https://github.com/better-auth/better-auth/tree/main/examples/nextjs-kysely-postgres)
+- [Express + Kysely + SQLite](https://github.com/better-auth/better-auth/tree/main/examples/express-kysely-sqlite)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Learn about all configuration options
+  </Card>
+  <Card title="Custom Fields" icon="database" href="/guides/custom-fields">
+    Add custom fields to your database
+  </Card>
+  <Card title="Email Verification" icon="envelope" href="/guides/email-verification">
+    Set up email verification
+  </Card>
+  <Card title="OAuth Setup" icon="key" href="/guides/oauth-setup">
+    Configure social providers
+  </Card>
+</CardGroup>

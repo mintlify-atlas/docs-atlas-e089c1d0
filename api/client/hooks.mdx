@@ -1,0 +1,407 @@
+---
+title: Client Hooks
+---
+
+Better Auth provides framework-specific hooks for React, Vue, Svelte, and Solid to manage authentication state reactively.
+
+## React Hooks
+
+### useSession()
+
+Get the current session with automatic reactivity.
+
+```tsx
+import { authClient } from "@/lib/auth-client";
+
+function Profile() {
+  const { data, isPending, error, refetch } = authClient.useSession();
+  
+  if (isPending) {
+    return <div>Loading...</div>;
+  }
+  
+  if (error) {
+    return <div>Error: {error.message}</div>;
+  }
+  
+  if (!data) {
+    return <div>Not signed in</div>;
+  }
+  
+  return (
+    <div>
+      <h1>Welcome, {data.user.name}!</h1>
+      <p>Email: {data.user.email}</p>
+      <button onClick={() => refetch()}>Refresh</button>
+    </div>
+  );
+}
+```
+
+<ResponseField name="data" type="{ user, session } | null">
+  Current session data. `null` if not authenticated.
+</ResponseField>
+
+<ResponseField name="isPending" type="boolean">
+  `true` while the initial session is being loaded.
+</ResponseField>
+
+<ResponseField name="isRefetching" type="boolean">
+  `true` while refetching the session (after initial load).
+</ResponseField>
+
+<ResponseField name="error" type="BetterFetchError | null">
+  Error object if the session fetch failed.
+</ResponseField>
+
+<ResponseField name="refetch" type="(options?) => Promise<void>">
+  Function to manually refetch the session.
+  
+  ```tsx
+  // Refetch with options
+  await refetch({
+    query: {
+      disableCookieCache: true,
+    },
+  });
+  ```
+</ResponseField>
+
+### Session Query Options
+
+The `useSession` hook and `refetch` function accept optional query parameters:
+
+```tsx
+const { data, refetch } = authClient.useSession();
+
+// Skip cookie cache
+await refetch({
+  query: {
+    disableCookieCache: true,
+  },
+});
+
+// Skip refresh
+await refetch({
+  query: {
+    disableRefresh: true,
+  },
+});
+```
+
+<ParamField path="disableCookieCache" type="boolean">
+  Skip the cookie cache and fetch from the database.
+</ParamField>
+
+<ParamField path="disableRefresh" type="boolean">
+  Skip automatic session refresh if expired.
+</ParamField>
+
+## Vue Hooks
+
+Vue uses the same API with composables:
+
+```vue
+<script setup lang="ts">
+import { authClient } from "@/lib/auth-client";
+
+const { data, isPending, error, refetch } = authClient.useSession();
+</script>
+
+<template>
+  <div v-if="isPending">Loading...</div>
+  <div v-else-if="error">Error: {{ error.message }}</div>
+  <div v-else-if="!data">Not signed in</div>
+  <div v-else>
+    <h1>Welcome, {{ data.user.name }}!</h1>
+    <p>Email: {{ data.user.email }}</p>
+    <button @click="refetch">Refresh</button>
+  </div>
+</template>
+```
+
+## Svelte Hooks
+
+Svelte uses stores that can be subscribed to with `$`:
+
+```svelte
+<script lang="ts">
+  import { authClient } from "$lib/auth-client";
+  
+  const session = authClient.useSession();
+</script>
+
+{#if $session.isPending}
+  <div>Loading...</div>
+{:else if $session.error}
+  <div>Error: {$session.error.message}</div>
+{:else if !$session.data}
+  <div>Not signed in</div>
+{:else}
+  <div>
+    <h1>Welcome, {$session.data.user.name}!</h1>
+    <p>Email: {$session.data.user.email}</p>
+    <button on:click={() => $session.refetch()}>Refresh</button>
+  </div>
+{/if}
+```
+
+## Solid Hooks
+
+Solid uses signals:
+
+```tsx
+import { authClient } from "~/lib/auth-client";
+import { Show, Match, Switch } from "solid-js";
+
+function Profile() {
+  const session = authClient.useSession();
+  
+  return (
+    <Switch>
+      <Match when={session().isPending}>
+        <div>Loading...</div>
+      </Match>
+      <Match when={session().error}>
+        <div>Error: {session().error.message}</div>
+      </Match>
+      <Match when={!session().data}>
+        <div>Not signed in</div>
+      </Match>
+      <Match when={session().data}>
+        <div>
+          <h1>Welcome, {session().data.user.name}!</h1>
+          <p>Email: {session().data.user.email}</p>
+          <button onClick={() => session().refetch()}>Refresh</button>
+        </div>
+      </Match>
+    </Switch>
+  );
+}
+```
+
+## Plugin Hooks
+
+Plugins can provide additional hooks. For example, the Two-Factor plugin:
+
+### React
+
+```tsx
+import { authClient } from "@/lib/auth-client";
+
+function TwoFactorSettings() {
+  const twoFactor = authClient.useTwoFactor();
+  
+  return (
+    <div>
+      <p>Status: {twoFactor.data?.enabled ? "Enabled" : "Disabled"}</p>
+      {!twoFactor.data?.enabled && (
+        <button onClick={async () => {
+          await authClient.twoFactor.enable();
+          await twoFactor.refetch();
+        }}>
+          Enable 2FA
+        </button>
+      )}
+    </div>
+  );
+}
+```
+
+### Vue
+
+```vue
+<script setup lang="ts">
+import { authClient } from "@/lib/auth-client";
+
+const twoFactor = authClient.useTwoFactor();
+
+const enable2FA = async () => {
+  await authClient.twoFactor.enable();
+  await twoFactor.refetch();
+};
+</script>
+
+<template>
+  <div>
+    <p>Status: {{ twoFactor.data?.enabled ? "Enabled" : "Disabled" }}</p>
+    <button v-if="!twoFactor.data?.enabled" @click="enable2FA">
+      Enable 2FA
+    </button>
+  </div>
+</template>
+```
+
+See plugin documentation for available hooks:
+
+- [Two-Factor Plugin](/plugins/two-factor)
+- [Organization Plugin](/plugins/organization)
+- [Multi-Session Plugin](/plugins/multi-session)
+
+## Session Management Patterns
+
+### Protected Component
+
+```tsx
+import { authClient } from "@/lib/auth-client";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+
+function ProtectedPage() {
+  const { data, isPending } = authClient.useSession();
+  const router = useRouter();
+  
+  useEffect(() => {
+    if (!isPending && !data) {
+      router.push("/sign-in");
+    }
+  }, [data, isPending, router]);
+  
+  if (isPending) {
+    return <div>Loading...</div>;
+  }
+  
+  if (!data) {
+    return null; // Will redirect
+  }
+  
+  return <div>Protected content</div>;
+}
+```
+
+### Auth Status Display
+
+```tsx
+import { authClient } from "@/lib/auth-client";
+
+function AuthStatus() {
+  const { data } = authClient.useSession();
+  
+  return (
+    <div>
+      {data ? (
+        <div>
+          <span>Signed in as {data.user.email}</span>
+          <button onClick={() => authClient.signOut()}>
+            Sign Out
+          </button>
+        </div>
+      ) : (
+        <a href="/sign-in">Sign In</a>
+      )}
+    </div>
+  );
+}
+```
+
+### Conditional Rendering
+
+```tsx
+import { authClient } from "@/lib/auth-client";
+
+function Dashboard() {
+  const { data, isPending } = authClient.useSession();
+  
+  if (isPending) {
+    return <LoadingSpinner />;
+  }
+  
+  return (
+    <div>
+      {data ? (
+        <AuthenticatedView user={data.user} />
+      ) : (
+        <GuestView />
+      )}
+    </div>
+  );
+}
+```
+
+## Automatic Session Refresh
+
+The session is automatically refreshed in the background when:
+
+1. The window regains focus
+2. The network reconnects
+3. The session is nearing expiration
+
+You can manually trigger a refresh:
+
+```tsx
+const { refetch } = authClient.useSession();
+
+// Force a fresh fetch from the server
+await refetch({
+  query: {
+    disableCookieCache: true,
+  },
+});
+```
+
+## Server-Side Usage
+
+Hooks are client-side only. For server-side session access, use the server API:
+
+```tsx
+// app/page.tsx (Server Component)
+import { auth } from "@/lib/auth";
+
+export default async function Page() {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+  
+  return (
+    <div>
+      {session ? (
+        <p>Welcome, {session.user.name}!</p>
+      ) : (
+        <p>Not signed in</p>
+      )}
+    </div>
+  );
+}
+```
+
+## Performance Optimization
+
+### Cookie Cache
+
+Better Auth uses a cookie-based cache to reduce database calls:
+
+```tsx
+// Default: Uses cache (5 minute default)
+const session = authClient.useSession();
+
+// Skip cache for fresh data
+const { refetch } = authClient.useSession();
+await refetch({ query: { disableCookieCache: true } });
+```
+
+### Selective Subscriptions
+
+Only subscribe to sessions where needed:
+
+```tsx
+// ❌ Don't do this on every component
+function MyComponent() {
+  const session = authClient.useSession();
+  // ...
+}
+
+// ✅ Do this: Subscribe only in layout/root
+function Layout() {
+  const session = authClient.useSession();
+  return <MyComponentWithoutHook />;
+}
+```
+
+## See Also
+
+- [Client Initialization](/api/client/initialization) - Setup and configuration
+- [Client Methods](/api/client/methods) - Available methods
+- [React Integration](/client/react) - React-specific guide
+- [Vue Integration](/client/vue) - Vue-specific guide
+- [Svelte Integration](/client/svelte) - Svelte-specific guide
+- [Solid Integration](/client/solid) - Solid-specific guide

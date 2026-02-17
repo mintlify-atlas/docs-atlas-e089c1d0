@@ -1,0 +1,389 @@
+---
+title: FAQ
+description: Frequently asked questions about Better Auth.
+---
+
+Quick answers to the most common questions about Better Auth.
+
+## General Questions
+
+<Accordions>
+  <Accordion id="what-is-better-auth" title="What is Better Auth?">
+    Better Auth is a comprehensive, framework-agnostic authentication library for TypeScript. It provides a complete set of authentication features out of the box, including email/password, social login, two-factor authentication, passkeys, SSO, and more.
+
+    Unlike other solutions, Better Auth is:
+    - **Framework-agnostic**: Works with Next.js, SvelteKit, Nuxt, Remix, Astro, and more
+    - **Type-safe**: Built with TypeScript from the ground up
+    - **Extensible**: Plugin architecture for adding features
+    - **Self-hosted**: You own your data and infrastructure
+    - **Open source**: MIT licensed
+  </Accordion>
+
+  <Accordion id="how-does-it-compare" title="How does Better Auth compare to other solutions?">
+    See the detailed [Comparison Guide](/resources/comparison) for a full breakdown vs Clerk, Auth.js, Supabase Auth, Auth0, and others.
+
+    **Quick summary:**
+    - **vs Clerk**: Self-hosted, no pricing tiers, full control
+    - **vs Auth.js**: More features, better DX, active maintenance
+    - **vs Supabase**: Framework-agnostic, not tied to Supabase ecosystem
+    - **vs Auth0**: Open source, no per-user pricing, simpler setup
+  </Accordion>
+
+  <Accordion id="is-it-production-ready" title="Is Better Auth production-ready?">
+    Yes! Better Auth is used in production by many applications. It has:
+    - Comprehensive test coverage
+    - Security audits
+    - Active maintenance and bug fixes
+    - Production-ready demo application
+
+    However, as with any auth system:
+    - Test thoroughly in staging first
+    - Follow security best practices
+    - Keep dependencies updated
+    - Monitor for security advisories
+  </Accordion>
+
+  <Accordion id="cost" title="How much does Better Auth cost?">
+    Better Auth is **completely free and open source** (MIT license). There are no:
+    - Per-user fees
+    - Monthly charges
+    - Usage limits
+    - Hidden costs
+
+    You only pay for your own infrastructure (database, hosting, email service, etc.).
+  </Accordion>
+</Accordions>
+
+## Setup & Installation
+
+<Accordions>
+  <Accordion id="which-database" title="Which databases are supported?">
+    Better Auth supports:
+    - **PostgreSQL** (recommended for production)
+    - **MySQL**
+    - **SQLite** (good for development/small apps)
+    - **MongoDB** (via adapter)
+    - **Cloudflare D1**
+    - **LibSQL/Turso**
+    - **PlanetScale**
+    - **Neon**
+    - **Supabase**
+
+    See [Database Adapters](/adapters/overview) for details.
+  </Accordion>
+
+  <Accordion id="do-i-need-database" title="Do I need a database?">
+    No! Better Auth supports stateless (JWT-based) sessions without a database:
+
+    ```ts
+    import { betterAuth } from "better-auth";
+
+    export const auth = betterAuth({
+      session: {
+        strategy: "jwt",
+      },
+      // No database config needed
+    });
+    ```
+
+    However, a database is required for:
+    - Storing user accounts
+    - Database sessions
+    - Two-factor secrets
+    - Organizations/teams
+    - Most plugins
+  </Accordion>
+
+  <Accordion id="which-framework" title="Which frameworks are supported?">
+    Better Auth is framework-agnostic and works with:
+    - **Next.js** (App Router & Pages Router)
+    - **SvelteKit**
+    - **Nuxt**
+    - **Remix**
+    - **Astro**
+    - **SolidStart**
+    - **TanStack Start**
+    - **Hono**
+    - **Express**
+    - **Fastify**
+    - Any Node.js framework
+
+    See [Integrations](/integrations/nextjs) for framework-specific guides.
+  </Accordion>
+
+  <Accordion id="migrate-from-other" title="Can I migrate from another auth provider?">
+    Yes! We have detailed migration guides for:
+    - [Clerk → Better Auth](/guides/clerk-migration-guide)
+    - [Auth.js/NextAuth → Better Auth](/guides/next-auth-migration-guide)
+    - [Supabase Auth → Better Auth](/guides/supabase-migration-guide)
+    - [Auth0 → Better Auth](/guides/auth0-migration-guide)
+    - [WorkOS → Better Auth](/guides/workos-migration-guide)
+
+    See the [Migration Guide](/resources/migration-guide) for general strategies.
+  </Accordion>
+</Accordions>
+
+## Usage & Implementation
+
+<Accordions>
+  <Accordion id="auth-client-not-working" title="Auth client not working?">
+    When encountering `createAuthClient` related errors, make sure to have the correct import path as it varies based on environment.
+
+    If you're using the auth client on a React front-end, you'll need to import it from `/react`:
+
+    ```ts title="component.ts"
+    import { createAuthClient } from "better-auth/react";
+    ```
+
+    Where as if you're using the auth client in Next.js middleware, server-actions, server-components or anything server-related, you'll likely need to import it from `/client`:
+
+    ```ts title="server.ts"
+    import { createAuthClient } from "better-auth/client";
+    ```
+  </Accordion>
+
+  <Accordion id="getsession-not-working" title="getSession not working?">
+    If you try to call `authClient.getSession` on a server environment (e.g, a Next.js server component), it doesn't work since it can't access the cookies. You can use the `auth.api.getSession` instead and pass the request headers to it.
+
+    ```tsx title="server.tsx"
+    import { auth } from "./auth";
+    import { headers } from "next/headers";
+
+    const session = await auth.api.getSession({
+      headers: await headers()
+    })
+    ```
+
+    if you need to use the auth client on the server for different purposes, you still can pass the request headers to it:
+
+    ```tsx title="server.tsx"
+    import { authClient } from "./auth-client";
+    import { headers } from "next/headers";
+
+    const session = await authClient.getSession({
+      fetchOptions:{
+        headers: await headers()
+      }
+    })
+    ```
+  </Accordion>
+
+  <Accordion id="difference-between-getsession-and-usesession" title="Difference between getSession and useSession?">
+    Both `useSession` and `getSession` instances are used fundamentally different based on the situation.
+
+    `useSession` is a hook, meaning it can trigger re-renders whenever session data changes.
+
+    If you have UI you need to change based on user or session data, you can use this hook.
+
+    <Callout type="warn">
+      For performance reasons, do not use this hook on your `layout.tsx` file. We recommend using RSC and use your server auth instance to get the session data via `auth.api.getSession`.
+    </Callout>
+
+    `getSession` returns a promise containing data and error.
+
+    For all other situations where you shouldn't use `useSession`, is when you should be using `getSession`.
+
+    <Callout type="info">
+      `getSession` is available on both server and client auth instances. Not just the latter.
+    </Callout>
+  </Accordion>
+
+  <Accordion id="protect-routes" title="How do I protect routes?">
+    Better Auth recommends checking authentication in each route/page rather than in middleware:
+
+    **Server Component (Next.js):**
+    ```tsx
+    import { auth } from "@/lib/auth";
+    import { headers } from "next/headers";
+    import { redirect } from "next/navigation";
+
+    export default async function ProtectedPage() {
+      const session = await auth.api.getSession({
+        headers: await headers(),
+      });
+
+      if (!session) {
+        redirect("/sign-in");
+      }
+
+      return <div>Protected content</div>;
+    }
+    ```
+
+    **Client Component:**
+    ```tsx
+    "use client";
+    import { authClient } from "@/lib/auth-client";
+    import { redirect } from "next/navigation";
+
+    export default function ProtectedPage() {
+      const { data: session, isPending } = authClient.useSession();
+
+      if (isPending) return <div>Loading...</div>;
+      if (!session) redirect("/sign-in");
+
+      return <div>Protected content</div>;
+    }
+    ```
+
+    For middleware-based protection, see [Next.js Integration](/integrations/nextjs#middleware).
+  </Accordion>
+
+  <Accordion id="adding-custom-fields-to-the-users-table" title="Adding custom fields to the users table?">
+    Better Auth provides a type-safe way to extend the user and session schemas, take a look at our docs on [extending core schema](/concepts/database#extending-core-schema).
+  </Accordion>
+
+  <Accordion id="can-i-remove-name-image-or-email-fields-from-the-user-table" title="Can I remove `name`, `image`, or `email` fields from the user table?">
+    At this time, you can't remove the `name`, `image`, or `email` fields from the user table.
+
+    We do plan to have more customizability in the future in this regard, but for now, you can't remove these fields.
+  </Accordion>
+
+  <Accordion id="corporate-proxy-configuration" title="How to configure a corporate proxy for server-side requests?">
+    If you need to configure a corporate proxy for Better Auth's outbound requests (e.g., OAuth provider requests), you can use undici's ProxyAgent to set up a global fetch proxy.
+
+    ```typescript title="auth.ts"
+    import { betterAuth } from "better-auth";
+    import { ProxyAgent, setGlobalDispatcher } from "undici";
+
+    const proxyAgent = new ProxyAgent("http://your-proxy.example.com:8080");
+    setGlobalDispatcher(proxyAgent);
+
+    export const auth = betterAuth({
+      // your configuration
+    });
+    ```
+
+    Since Better Auth runs on the server side, you have full control over Node.js's fetch behavior through undici's global dispatcher. This approach allows all outbound requests from Better Auth to go through your corporate proxy.
+
+    <Callout type="info">
+      Learn more about undici ProxyAgent in the [undici documentation](https://github.com/nodejs/undici/blob/main/docs/docs/api/ProxyAgent.md).
+    </Callout>
+  </Accordion>
+</Accordions>
+
+## Features & Plugins
+
+<Accordions>
+  <Accordion id="social-providers" title="Which social providers are supported?">
+    Better Auth supports 50+ OAuth providers out of the box:
+
+    **Major Providers:**
+    - Google, GitHub, Facebook, Twitter/X
+    - Microsoft, Apple, Discord, Twitch
+    - LinkedIn, Spotify, Slack
+
+    **Regional:**
+    - Keycloak, Authentik
+    - And many more...
+
+    See [Social Providers](/authentication/social-providers) for the complete list.
+
+    You can also add custom OAuth providers using the [Generic OAuth plugin](/plugins/generic-oauth).
+  </Accordion>
+
+  <Accordion id="two-factor" title="Does it support two-factor authentication?">
+    Yes! The [Two-Factor plugin](/plugins/2fa) provides:
+    - TOTP (Time-based One-Time Passwords)
+    - Backup codes
+    - Email OTP (via [Email OTP plugin](/plugins/email-otp))
+    - SMS OTP (via [Phone Number plugin](/plugins/phone-number))
+  </Accordion>
+
+  <Accordion id="passkeys" title="Does it support passkeys?">
+    Yes! The [Passkey plugin](/plugins/passkey) provides WebAuthn support for:
+    - Registration with biometrics or security keys
+    - Passwordless authentication
+    - Multi-device sync (via iCloud Keychain, Google Password Manager, etc.)
+  </Accordion>
+
+  <Accordion id="organizations" title="Does it support organizations/teams?">
+    Yes! The [Organization plugin](/plugins/organization) provides:
+    - Multi-tenant organizations
+    - Role-based access control (RBAC)
+    - Member invitations
+    - Organization switching
+    - Custom roles and permissions
+  </Accordion>
+
+  <Accordion id="sso" title="Does it support enterprise SSO?">
+    Yes! The [SSO plugin](/plugins/sso) supports:
+    - SAML 2.0
+    - OIDC (OpenID Connect)
+    - Domain-based auto-provisioning
+    - JIT (Just-in-Time) user creation
+    - SCIM provisioning (via [SCIM plugin](/plugins/scim))
+  </Accordion>
+</Accordions>
+
+## Troubleshooting
+
+<Accordions>
+  <Accordion id="common-typescript-errors" title="Common TypeScript Errors?">
+    If you're facing typescript errors, make sure your tsconfig has `strict` set to `true`:
+
+    ```json title="tsconfig.json"
+    {
+      "compilerOptions": {
+        "strict": true,
+      }
+    }
+    ```
+
+    if you can't set strict to true, you can enable strictNullChecks:
+
+    ```json title="tsconfig.json"
+    {
+      "compilerOptions": {
+        "strictNullChecks": true,
+      }
+    }
+    ```
+
+    You can learn more in our [TypeScript docs](/concepts/typescript#typescript-config).
+  </Accordion>
+
+  <Accordion id="sessions-not-persisting" title="Sessions not persisting?">
+    If sessions are lost after page refresh:
+
+    1. Check that cookies are being set in browser DevTools
+    2. Verify `baseURL` matches your app URL
+    3. Check CORS settings in `trustedOrigins`
+    4. For HTTPS issues, see [Troubleshooting](/resources/troubleshooting#sessions-not-persisting)
+  </Accordion>
+
+  <Accordion id="oauth-errors" title="OAuth errors?">
+    Common OAuth errors and fixes:
+
+    - **state_mismatch**: Clear cookies and retry
+    - **no_code**: Check redirect URI in provider settings
+    - **Redirect URI mismatch**: Verify callback URL format: `https://yourdomain.com/api/auth/callback/[provider]`
+
+    See [OAuth Troubleshooting](/resources/troubleshooting#oauth--social-login-issues) for details.
+  </Accordion>
+</Accordions>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    href="/installation"
+    title="Get Started"
+    description="Install Better Auth in your project"
+  />
+  <Card
+    href="/resources/troubleshooting"
+    title="Troubleshooting"
+    description="Detailed solutions to common issues"
+  />
+  <Card
+    href="/resources/comparison"
+    title="Compare Solutions"
+    description="See how Better Auth stacks up"
+  />
+  <Card
+    href="https://discord.gg/better-auth"
+    title="Join Discord"
+    description="Get help from the community"
+  />
+</CardGroup>

@@ -1,80 +1,776 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get Better Auth running in your project in under 5 minutes
 ---
 
-## Get started in three steps
+<Note>
+  This guide assumes you've already [installed Better Auth](/installation). If not, install it first using:
+  ```bash
+  npx @better-auth/cli@latest init
+  ```
+</Note>
 
-Get your documentation site running locally and make your first customization.
+## Overview
 
-### Step 1: Set up your local environment
+In this quickstart, you'll:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+1. Create a server-side auth instance
+2. Set up a client-side auth client
+3. Add authentication API routes
+4. Implement sign-up and sign-in
 
-### Step 2: Deploy your changes
+Let's get started!
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+## Step 1: Create Auth Instance
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+Create an `auth.ts` file in your project (typically in `lib/` or `src/`):
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+<CodeGroup>
 
-### Step 3: Go live
+```typescript auth.ts (Kysely)
+import { betterAuth } from "better-auth";
+import { PostgresDialect } from "kysely";
+import { Pool } from "pg";
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+export const auth = betterAuth({
+  database: new PostgresDialect({
+    pool: new Pool({
+      connectionString: process.env.DATABASE_URL,
+    }),
+  }),
+  emailAndPassword: {
+    enabled: true,
+  },
+});
+```
 
-## Next steps
+```typescript auth.ts (Prisma)
+import { betterAuth } from "better-auth";
+import { prismaAdapter } from "better-auth/adapters/prisma";
+import { PrismaClient } from "@prisma/client";
 
-Now that you have your docs running, explore these key features:
+const prisma = new PrismaClient();
 
-<CardGroup cols={2}>
+export const auth = betterAuth({
+  database: prismaAdapter(prisma, {
+    provider: "postgresql", // or "mysql", "sqlite"
+  }),
+  emailAndPassword: {
+    enabled: true,
+  },
+});
+```
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+```typescript auth.ts (Drizzle)
+import { betterAuth } from "better-auth";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+const db = drizzle(pool);
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+export const auth = betterAuth({
+  database: drizzleAdapter(db, {
+    provider: "pg", // or "mysql", "sqlite"
+  }),
+  emailAndPassword: {
+    enabled: true,
+  },
+});
+```
 
-</CardGroup>
+```typescript auth.ts (MongoDB)
+import { betterAuth } from "better-auth";
+import { mongodbAdapter } from "better-auth/adapters/mongodb";
+import { MongoClient } from "mongodb";
+
+const client = new MongoClient(process.env.DATABASE_URL!);
+const db = client.db();
+
+export const auth = betterAuth({
+  database: mongodbAdapter(db),
+  emailAndPassword: {
+    enabled: true,
+  },
+});
+```
+
+</CodeGroup>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  The example above shows email/password authentication. Better Auth supports [many authentication methods](/introduction#authentication-methods).
 </Note>
+
+## Step 2: Add API Routes
+
+Better Auth needs API endpoints to handle authentication requests. The setup varies by framework:
+
+<Tabs>
+  <Tab title="Next.js (App Router)">
+    Create `app/api/auth/[...all]/route.ts`:
+
+    ```typescript app/api/auth/[...all]/route.ts
+    import { auth } from "@/lib/auth"; // path to your auth.ts
+    import { toNextJsHandler } from "better-auth/next-js";
+
+    export const { GET, POST } = toNextJsHandler(auth);
+    ```
+
+    <Note>
+      The `[...all]` catch-all route handles all Better Auth endpoints like `/api/auth/sign-in`, `/api/auth/sign-up`, etc.
+    </Note>
+  </Tab>
+  
+  <Tab title="Next.js (Pages Router)">
+    Create `pages/api/auth/[...all].ts`:
+
+    ```typescript pages/api/auth/[...all].ts
+    import { auth } from "@/lib/auth"; // path to your auth.ts
+    import { toNextJsHandler } from "better-auth/next-js";
+
+    export default toNextJsHandler(auth);
+    ```
+  </Tab>
+
+  <Tab title="SvelteKit">
+    Create `src/routes/api/auth/[...all]/+server.ts`:
+
+    ```typescript src/routes/api/auth/[...all]/+server.ts
+    import { auth } from "$lib/auth"; // path to your auth.ts
+    import { svelteKitHandler } from "better-auth/svelte-kit";
+
+    export const { GET, POST } = svelteKitHandler(auth);
+    ```
+  </Tab>
+
+  <Tab title="Solid Start">
+    Create `src/routes/api/auth/[...all].ts`:
+
+    ```typescript src/routes/api/auth/[...all].ts
+    import { auth } from "~/lib/auth"; // path to your auth.ts
+    import { solidStartHandler } from "better-auth/solid-start";
+
+    export const { GET, POST } = solidStartHandler(auth);
+    ```
+  </Tab>
+
+  <Tab title="Node.js / Express">
+    ```typescript server.ts
+    import express from "express";
+    import { auth } from "./auth"; // path to your auth.ts
+    import { toNodeHandler } from "better-auth/node";
+
+    const app = express();
+
+    app.all("/api/auth/*", toNodeHandler(auth));
+
+    app.listen(3000, () => {
+      console.log("Server running on http://localhost:3000");
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Step 3: Create Auth Client
+
+Create an `auth-client.ts` file for your frontend:
+
+<CodeGroup>
+
+```typescript auth-client.ts (Vanilla)
+import { createAuthClient } from "better-auth/client";
+import type { auth } from "./auth"; // Import type from your server auth
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000", // Your app's URL
+});
+
+// Infer types from server
+export type Session = typeof authClient.$Infer.Session;
+```
+
+```typescript auth-client.ts (React)
+import { createAuthClient } from "better-auth/react";
+import type { auth } from "./auth"; // Import type from your server auth
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000", // Your app's URL
+});
+
+export type Session = typeof authClient.$Infer.Session;
+```
+
+```typescript auth-client.ts (Vue)
+import { createAuthClient } from "better-auth/vue";
+import type { auth } from "./auth"; // Import type from your server auth
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000", // Your app's URL
+});
+
+export type Session = typeof authClient.$Infer.Session;
+```
+
+```typescript auth-client.ts (Svelte)
+import { createAuthClient } from "better-auth/svelte";
+import type { auth } from "./auth"; // Import type from your server auth
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000", // Your app's URL
+});
+
+export type Session = typeof authClient.$Infer.Session;
+```
+
+```typescript auth-client.ts (Solid)
+import { createAuthClient } from "better-auth/solid";
+import type { auth } from "./auth"; // Import type from your server auth
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000", // Your app's URL
+});
+
+export type Session = typeof authClient.$Infer.Session;
+```
+
+</CodeGroup>
+
+<Note>
+  The client automatically infers types from your server configuration, giving you full type safety across your application.
+</Note>
+
+## Step 4: Implement Authentication UI
+
+Now let's create sign-up and sign-in forms:
+
+<Tabs>
+  <Tab title="React / Next.js">
+    ```tsx components/auth-form.tsx
+    "use client"; // For Next.js App Router
+
+    import { authClient } from "@/lib/auth-client";
+    import { useState } from "react";
+
+    export function AuthForm() {
+      const [isSignUp, setIsSignUp] = useState(false);
+      const [email, setEmail] = useState("");
+      const [password, setPassword] = useState("");
+      const [name, setName] = useState("");
+
+      const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+
+        if (isSignUp) {
+          await authClient.signUp.email({
+            email,
+            password,
+            name,
+          });
+        } else {
+          await authClient.signIn.email({
+            email,
+            password,
+          });
+        }
+      };
+
+      return (
+        <form onSubmit={handleSubmit}>
+          <h2>{isSignUp ? "Sign Up" : "Sign In"}</h2>
+          
+          {isSignUp && (
+            <input
+              type="text"
+              placeholder="Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          )}
+          
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+          
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+          
+          <button type="submit">
+            {isSignUp ? "Sign Up" : "Sign In"}
+          </button>
+          
+          <button type="button" onClick={() => setIsSignUp(!isSignUp)}>
+            {isSignUp ? "Already have an account?" : "Need an account?"}
+          </button>
+        </form>
+      );
+    }
+    ```
+
+    Display the current session:
+
+    ```tsx components/user-info.tsx
+    "use client";
+
+    import { authClient } from "@/lib/auth-client";
+
+    export function UserInfo() {
+      const session = authClient.useSession();
+
+      if (session.isPending) {
+        return <div>Loading...</div>;
+      }
+
+      if (!session.data) {
+        return <div>Not signed in</div>;
+      }
+
+      return (
+        <div>
+          <p>Signed in as {session.data.user.email}</p>
+          <button onClick={() => authClient.signOut()}>
+            Sign Out
+          </button>
+        </div>
+      );
+    }
+    ```
+  </Tab>
+
+  <Tab title="Vue">
+    ```vue components/AuthForm.vue
+    <script setup lang="ts">
+    import { ref } from 'vue';
+    import { authClient } from '@/lib/auth-client';
+
+    const isSignUp = ref(false);
+    const email = ref('');
+    const password = ref('');
+    const name = ref('');
+
+    const handleSubmit = async () => {
+      if (isSignUp.value) {
+        await authClient.signUp.email({
+          email: email.value,
+          password: password.value,
+          name: name.value,
+        });
+      } else {
+        await authClient.signIn.email({
+          email: email.value,
+          password: password.value,
+        });
+      }
+    };
+    </script>
+
+    <template>
+      <form @submit.prevent="handleSubmit">
+        <h2>{{ isSignUp ? 'Sign Up' : 'Sign In' }}</h2>
+        
+        <input
+          v-if="isSignUp"
+          v-model="name"
+          type="text"
+          placeholder="Name"
+          required
+        />
+        
+        <input
+          v-model="email"
+          type="email"
+          placeholder="Email"
+          required
+        />
+        
+        <input
+          v-model="password"
+          type="password"
+          placeholder="Password"
+          required
+        />
+        
+        <button type="submit">
+          {{ isSignUp ? 'Sign Up' : 'Sign In' }}
+        </button>
+        
+        <button type="button" @click="isSignUp = !isSignUp">
+          {{ isSignUp ? 'Already have an account?' : 'Need an account?' }}
+        </button>
+      </form>
+    </template>
+    ```
+
+    Display session:
+
+    ```vue components/UserInfo.vue
+    <script setup lang="ts">
+    import { authClient } from '@/lib/auth-client';
+
+    const session = authClient.useSession();
+
+    const handleSignOut = async () => {
+      await authClient.signOut();
+    };
+    </script>
+
+    <template>
+      <div v-if="session.isPending">Loading...</div>
+      <div v-else-if="!session.data">Not signed in</div>
+      <div v-else>
+        <p>Signed in as {{ session.data.user.email }}</p>
+        <button @click="handleSignOut">Sign Out</button>
+      </div>
+    </template>
+    ```
+  </Tab>
+
+  <Tab title="Svelte">
+    ```svelte components/AuthForm.svelte
+    <script lang="ts">
+      import { authClient } from '$lib/auth-client';
+      
+      let isSignUp = false;
+      let email = '';
+      let password = '';
+      let name = '';
+
+      async function handleSubmit() {
+        if (isSignUp) {
+          await authClient.signUp.email({ email, password, name });
+        } else {
+          await authClient.signIn.email({ email, password });
+        }
+      }
+    </script>
+
+    <form on:submit|preventDefault={handleSubmit}>
+      <h2>{isSignUp ? 'Sign Up' : 'Sign In'}</h2>
+      
+      {#if isSignUp}
+        <input
+          type="text"
+          placeholder="Name"
+          bind:value={name}
+          required
+        />
+      {/if}
+      
+      <input
+        type="email"
+        placeholder="Email"
+        bind:value={email}
+        required
+      />
+      
+      <input
+        type="password"
+        placeholder="Password"
+        bind:value={password}
+        required
+      />
+      
+      <button type="submit">
+        {isSignUp ? 'Sign Up' : 'Sign In'}
+      </button>
+      
+      <button type="button" on:click={() => isSignUp = !isSignUp}>
+        {isSignUp ? 'Already have an account?' : 'Need an account?'}
+      </button>
+    </form>
+    ```
+
+    Display session:
+
+    ```svelte components/UserInfo.svelte
+    <script lang="ts">
+      import { authClient } from '$lib/auth-client';
+      
+      const session = authClient.useSession();
+    </script>
+
+    {#if $session.isPending}
+      <div>Loading...</div>
+    {:else if !$session.data}
+      <div>Not signed in</div>
+    {:else}
+      <div>
+        <p>Signed in as {$session.data.user.email}</p>
+        <button on:click={() => authClient.signOut()}>
+          Sign Out
+        </button>
+      </div>
+    {/if}
+    ```
+  </Tab>
+
+  <Tab title="Solid">
+    ```tsx components/AuthForm.tsx
+    import { authClient } from '~/lib/auth-client';
+    import { createSignal } from 'solid-js';
+
+    export function AuthForm() {
+      const [isSignUp, setIsSignUp] = createSignal(false);
+      const [email, setEmail] = createSignal('');
+      const [password, setPassword] = createSignal('');
+      const [name, setName] = createSignal('');
+
+      const handleSubmit = async (e: Event) => {
+        e.preventDefault();
+
+        if (isSignUp()) {
+          await authClient.signUp.email({
+            email: email(),
+            password: password(),
+            name: name(),
+          });
+        } else {
+          await authClient.signIn.email({
+            email: email(),
+            password: password(),
+          });
+        }
+      };
+
+      return (
+        <form onSubmit={handleSubmit}>
+          <h2>{isSignUp() ? 'Sign Up' : 'Sign In'}</h2>
+          
+          {isSignUp() && (
+            <input
+              type="text"
+              placeholder="Name"
+              value={name()}
+              onInput={(e) => setName(e.currentTarget.value)}
+              required
+            />
+          )}
+          
+          <input
+            type="email"
+            placeholder="Email"
+            value={email()}
+            onInput={(e) => setEmail(e.currentTarget.value)}
+            required
+          />
+          
+          <input
+            type="password"
+            placeholder="Password"
+            value={password()}
+            onInput={(e) => setPassword(e.currentTarget.value)}
+            required
+          />
+          
+          <button type="submit">
+            {isSignUp() ? 'Sign Up' : 'Sign In'}
+          </button>
+          
+          <button type="button" onClick={() => setIsSignUp(!isSignUp())}>
+            {isSignUp() ? 'Already have an account?' : 'Need an account?'}
+          </button>
+        </form>
+      );
+    }
+    ```
+
+    Display session:
+
+    ```tsx components/UserInfo.tsx
+    import { authClient } from '~/lib/auth-client';
+    import { Show } from 'solid-js';
+
+    export function UserInfo() {
+      const session = authClient.useSession();
+
+      return (
+        <Show
+          when={!session().isPending}
+          fallback={<div>Loading...</div>}
+        >
+          <Show
+            when={session().data}
+            fallback={<div>Not signed in</div>}
+          >
+            <div>
+              <p>Signed in as {session().data!.user.email}</p>
+              <button onClick={() => authClient.signOut()}>
+                Sign Out
+              </button>
+            </div>
+          </Show>
+        </Show>
+      );
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Step 5: Test Your Authentication
+
+<Steps>
+  <Step title="Start your development server">
+    ```bash
+    npm run dev
+    ```
+  </Step>
+  
+  <Step title="Navigate to your auth page">
+    Open your browser and go to where you've added the auth form.
+  </Step>
+  
+  <Step title="Create an account">
+    Fill in the sign-up form with an email and password.
+  </Step>
+  
+  <Step title="Verify the session">
+    After signing up, you should see your user information displayed.
+  </Step>
+</Steps>
+
+<Note>
+  Check your database to see the newly created user and session records!
+</Note>
+
+## What's Next?
+
+Congratulations! You now have authentication working in your app. Here are some next steps:
+
+<CardGroup cols={2}>
+  <Card title="Add Social Providers" icon="share-nodes" href="/authentication/social-providers">
+    Enable sign-in with Google, GitHub, and more
+  </Card>
+  <Card title="Email Verification" icon="envelope-circle-check" href="/guides/email-verification">
+    Verify user email addresses
+  </Card>
+  <Card title="Two-Factor Auth" icon="lock" href="/authentication/two-factor">
+    Add an extra layer of security
+  </Card>
+  <Card title="Protected Routes" icon="shield-halved" href="/guides/configuration">
+    Secure your application routes
+  </Card>
+  <Card title="Session Management" icon="clock" href="/concepts/sessions">
+    Understand how sessions work
+  </Card>
+  <Card title="Custom Fields" icon="table-columns" href="/guides/custom-fields">
+    Add custom fields to your user model
+  </Card>
+</CardGroup>
+
+## Common Next Features
+
+### Password Reset
+
+Add password reset functionality:
+
+```typescript
+// Request password reset
+await authClient.forgetPassword({
+  email: "user@example.com",
+  redirectTo: "/reset-password",
+});
+
+// Reset password with token
+await authClient.resetPassword({
+  newPassword: "newSecurePassword",
+});
+```
+
+Learn more in the [Password Reset guide](/guides/password-reset).
+
+### Social Authentication
+
+Add OAuth providers to your auth configuration:
+
+```typescript auth.ts
+import { betterAuth } from "better-auth";
+import { google, github } from "better-auth/social-providers";
+
+export const auth = betterAuth({
+  // ... database config
+  socialProviders: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+    },
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID!,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+    },
+  },
+});
+```
+
+Learn more in the [Social Providers guide](/authentication/social-providers).
+
+### Add Plugins
+
+Extend functionality with plugins:
+
+```typescript auth.ts
+import { betterAuth } from "better-auth";
+import { twoFactor } from "better-auth/plugins";
+
+export const auth = betterAuth({
+  // ... other config
+  plugins: [
+    twoFactor({
+      issuer: "MyApp",
+    }),
+  ],
+});
+```
+
+Explore all [available plugins](/plugins/overview).
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Session not persisting after sign-in">
+    Ensure cookies are being set correctly. Check:
+    - `baseURL` in your client matches your server URL
+    - CORS is configured if frontend and backend are on different domains
+    - Cookies are not being blocked by browser settings
+  </Accordion>
+
+  <Accordion title="Type errors with session">
+    Make sure you're importing the type from your server auth:
+    
+    ```typescript
+    import type { auth } from "./auth";
+    ```
+
+    The client will automatically infer types from your server configuration.
+  </Accordion>
+
+  <Accordion title="Database connection errors">
+    Verify:
+    - `DATABASE_URL` is set correctly in `.env`
+    - Database migrations have been run: `npx @better-auth/cli migrate`
+    - Database server is running and accessible
+  </Accordion>
+
+  <Accordion title="API routes not found (404)">
+    Check:
+    - API route file is in the correct location for your framework
+    - File exports the correct handlers (GET, POST)
+    - Dev server has been restarted after creating routes
+  </Accordion>
+</AccordionGroup>
+
+<Card title="Need More Help?" icon="life-ring" href="/resources/troubleshooting">
+  Visit our troubleshooting guide or join our Discord community
+</Card>
