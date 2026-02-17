@@ -3,9 +3,9 @@
   "projectName": "Better Auth",
   "projectDescription": "The most comprehensive authentication framework for TypeScript",
   "theme": "aspen",
-  "primaryColor": "#000000",
-  "lightColor": "#3B82F6",
-  "darkColor": "#60A5FA",
+  "primaryColor": "#0ea5e9",
+  "lightColor": "#38bdf8",
+  "darkColor": "#0284c7",
   "navigation": {
     "tabs": [
       {
