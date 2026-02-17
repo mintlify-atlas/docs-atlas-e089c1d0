@@ -1,0 +1,244 @@
+{
+  "projectType": "framework",
+  "projectName": "Better Auth",
+  "projectDescription": "The most comprehensive authentication framework for TypeScript",
+  "theme": "aspen",
+  "primaryColor": "#3b82f6",
+  "lightColor": "#60a5fa",
+  "darkColor": "#2563eb",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/authentication",
+              "concepts/sessions",
+              "concepts/database",
+              "concepts/plugins"
+            ]
+          },
+          {
+            "group": "Authentication",
+            "pages": [
+              "authentication/email-password",
+              "authentication/social-providers",
+              "authentication/magic-link",
+              "authentication/passkey",
+              "authentication/two-factor",
+              "authentication/anonymous"
+            ]
+          },
+          {
+            "group": "Client SDKs",
+            "pages": [
+              "client/vanilla",
+              "client/react",
+              "client/vue",
+              "client/svelte",
+              "client/solid"
+            ]
+          },
+          {
+            "group": "Framework Integrations",
+            "pages": [
+              "integrations/nextjs",
+              "integrations/sveltekit",
+              "integrations/solid-start",
+              "integrations/tanstack-start",
+              "integrations/node"
+            ]
+          },
+          {
+            "group": "Database Adapters",
+            "pages": [
+              "adapters/overview",
+              "adapters/prisma",
+              "adapters/drizzle",
+              "adapters/mongodb",
+              "adapters/kysely"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/configuration",
+              "guides/email-verification",
+              "guides/password-reset",
+              "guides/oauth-setup",
+              "guides/custom-fields",
+              "guides/rate-limiting",
+              "guides/testing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Plugins",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "plugins/overview",
+              "plugins/custom-plugins"
+            ]
+          },
+          {
+            "group": "Authentication Plugins",
+            "pages": [
+              "plugins/two-factor",
+              "plugins/magic-link",
+              "plugins/email-otp",
+              "plugins/phone-number",
+              "plugins/username",
+              "plugins/anonymous",
+              "plugins/one-tap"
+            ]
+          },
+          {
+            "group": "Authorization Plugins",
+            "pages": [
+              "plugins/organization",
+              "plugins/access-control",
+              "plugins/admin",
+              "plugins/bearer"
+            ]
+          },
+          {
+            "group": "OAuth & SSO",
+            "pages": [
+              "plugins/generic-oauth",
+              "plugins/oauth-proxy",
+              "plugins/oidc-provider",
+              "plugins/sso"
+            ]
+          },
+          {
+            "group": "Security Plugins",
+            "pages": [
+              "plugins/captcha",
+              "plugins/haveibeenpwned",
+              "plugins/jwt",
+              "plugins/one-time-token"
+            ]
+          },
+          {
+            "group": "Advanced Plugins",
+            "pages": [
+              "plugins/multi-session",
+              "plugins/custom-session",
+              "plugins/device-authorization",
+              "plugins/api-key",
+              "plugins/siwe"
+            ]
+          },
+          {
+            "group": "Integration Plugins",
+            "pages": [
+              "plugins/stripe",
+              "plugins/passkey",
+              "plugins/scim",
+              "plugins/open-api"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Server API",
+            "pages": [
+              "api/server/better-auth",
+              "api/server/configuration",
+              "api/server/endpoints",
+              "api/server/hooks",
+              "api/server/utilities"
+            ]
+          },
+          {
+            "group": "Client API",
+            "pages": [
+              "api/client/initialization",
+              "api/client/methods",
+              "api/client/hooks",
+              "api/client/types"
+            ]
+          },
+          {
+            "group": "CLI",
+            "pages": [
+              "api/cli/overview",
+              "api/cli/init",
+              "api/cli/generate",
+              "api/cli/migrate",
+              "api/cli/secret"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Resources",
+            "pages": [
+              "resources/examples",
+              "resources/migration-guide",
+              "resources/troubleshooting",
+              "resources/faq",
+              "resources/comparison"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Framework-agnostic authentication library",
+    "OAuth2 and OIDC support",
+    "Social providers integration (50+ providers)",
+    "Multi-factor authentication (2FA, TOTP)",
+    "Passkey/WebAuthn support",
+    "Organization and multi-tenant support",
+    "Multiple database adapters (Prisma, Drizzle, MongoDB)",
+    "Client SDKs for React, Vue, Svelte, Solid",
+    "Framework integrations (Next.js, SvelteKit, etc.)",
+    "Extensive plugin ecosystem (29+ plugins)",
+    "Email verification and password reset",
+    "Magic link authentication",
+    "Anonymous authentication",
+    "Session management",
+    "Rate limiting and security features",
+    "SSO and SCIM support",
+    "Stripe integration",
+    "CLI for project scaffolding"
+  ],
+  "publicApiSurface": [
+    "betterAuth() - Main server initialization",
+    "createAuthClient() - Client initialization",
+    "betterAuth/react - React hooks and components",
+    "betterAuth/vue - Vue composables",
+    "betterAuth/svelte - Svelte stores",
+    "betterAuth/solid - Solid.js primitives",
+    "betterAuth/plugins/* - 29+ plugins",
+    "betterAuth/adapters/* - Database adapters",
+    "betterAuth/social-providers - Social OAuth providers",
+    "better-auth CLI - Command-line tool",
+    "Auth hooks: onRequest, onResponse, onError, onSuccess",
+    "Session APIs: getSession, setSession, deleteSession",
+    "User APIs: createUser, updateUser, deleteUser, linkAccount",
+    "Plugin API: createAuthPlugin, createAuthEndpoint, createAuthMiddleware"
+  ]
+}
